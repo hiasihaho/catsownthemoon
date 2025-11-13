@@ -123,6 +123,151 @@
         .paw2 { top: 20%; right: 20%; animation-delay: 1s; }
         .paw3 { bottom: 15%; left: 25%; animation-delay: 2s; }
         .paw4 { bottom: 25%; right: 15%; animation-delay: 3s; }
+
+        /* Chat Bubble Styles */
+        .chat-bubble {
+            position: fixed;
+            bottom: 30px;
+            right: 30px;
+            width: 60px;
+            height: 60px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 50%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 30px;
+            cursor: pointer;
+            box-shadow: 0 4px 20px rgba(102, 126, 234, 0.4);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+            z-index: 1000;
+            animation: pulse 2s ease-in-out infinite;
+        }
+
+        .chat-bubble:hover {
+            transform: scale(1.1);
+            box-shadow: 0 6px 30px rgba(102, 126, 234, 0.6);
+        }
+
+        @keyframes pulse {
+            0%, 100% { box-shadow: 0 4px 20px rgba(102, 126, 234, 0.4); }
+            50% { box-shadow: 0 4px 30px rgba(102, 126, 234, 0.8); }
+        }
+
+        /* Support Dialog Styles */
+        .support-dialog {
+            display: none;
+            position: fixed;
+            bottom: 110px;
+            right: 30px;
+            width: 350px;
+            max-width: calc(100vw - 60px);
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+            z-index: 999;
+            overflow: hidden;
+            animation: slideUp 0.3s ease-out;
+        }
+
+        .support-dialog.active {
+            display: block;
+        }
+
+        @keyframes slideUp {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .dialog-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .dialog-header h3 {
+            margin: 0;
+            font-size: 1.2rem;
+        }
+
+        .close-btn {
+            background: none;
+            border: none;
+            color: white;
+            font-size: 24px;
+            cursor: pointer;
+            padding: 0;
+            width: 30px;
+            height: 30px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            border-radius: 50%;
+            transition: background 0.2s ease;
+        }
+
+        .close-btn:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+
+        .dialog-content {
+            padding: 20px;
+            text-align: center;
+        }
+
+        .cat-image-container {
+            width: 100%;
+            height: 250px;
+            background: #f5f5f5;
+            border-radius: 10px;
+            overflow: hidden;
+            margin-bottom: 15px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .cat-image {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: cover;
+        }
+
+        .loading {
+            color: #667eea;
+            font-size: 14px;
+        }
+
+        .dialog-text {
+            color: #333;
+            font-size: 14px;
+            line-height: 1.6;
+            margin-bottom: 15px;
+        }
+
+        .refresh-btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 25px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: transform 0.2s ease;
+        }
+
+        .refresh-btn:hover {
+            transform: scale(1.05);
+        }
     </style>
 </head>
 <body>
@@ -146,6 +291,28 @@
         <p>Welcome to the moon... where cats reign supreme! 🌙</p>
     </div>
 
+    <!-- Chat Bubble -->
+    <div class="chat-bubble" id="chatBubble">
+        💬
+    </div>
+
+    <!-- Support Dialog -->
+    <div class="support-dialog" id="supportDialog">
+        <div class="dialog-header">
+            <h3>🐱 Cat Support</h3>
+            <button class="close-btn" id="closeBtn">×</button>
+        </div>
+        <div class="dialog-content">
+            <div class="cat-image-container" id="catImageContainer">
+                <div class="loading">Loading cat...</div>
+            </div>
+            <div class="dialog-text">
+                Need help? Here's a supportive cat to brighten your day! 😺
+            </div>
+            <button class="refresh-btn" id="refreshBtn">New Cat 🔄</button>
+        </div>
+    </div>
+
     <script>
         // Generate random stars
         const starsContainer = document.getElementById('stars');
@@ -157,6 +324,66 @@
             star.style.animationDelay = Math.random() * 3 + 's';
             starsContainer.appendChild(star);
         }
+
+        // Chat bubble and support dialog functionality
+        const chatBubble = document.getElementById('chatBubble');
+        const supportDialog = document.getElementById('supportDialog');
+        const closeBtn = document.getElementById('closeBtn');
+        const refreshBtn = document.getElementById('refreshBtn');
+        const catImageContainer = document.getElementById('catImageContainer');
+
+        // Function to load a random cat from CATAAS
+        function loadRandomCat() {
+            // Clear the container
+            catImageContainer.innerHTML = '<div class="loading">Loading cat...</div>';
+
+            // Create a new image element
+            const img = document.createElement('img');
+            img.className = 'cat-image';
+
+            // Add timestamp to prevent caching and get a truly random cat each time
+            const timestamp = new Date().getTime();
+            img.src = `https://cataas.com/cat?timestamp=${timestamp}`;
+
+            // Replace loading text with image once it loads
+            img.onload = function() {
+                catImageContainer.innerHTML = '';
+                catImageContainer.appendChild(img);
+            };
+
+            // Handle error case
+            img.onerror = function() {
+                catImageContainer.innerHTML = '<div class="loading">Failed to load cat 😿</div>';
+            };
+        }
+
+        // Toggle dialog visibility
+        chatBubble.addEventListener('click', function() {
+            const isActive = supportDialog.classList.contains('active');
+            if (!isActive) {
+                supportDialog.classList.add('active');
+                loadRandomCat();
+            } else {
+                supportDialog.classList.remove('active');
+            }
+        });
+
+        // Close dialog
+        closeBtn.addEventListener('click', function() {
+            supportDialog.classList.remove('active');
+        });
+
+        // Refresh cat image
+        refreshBtn.addEventListener('click', function() {
+            loadRandomCat();
+        });
+
+        // Close dialog when clicking outside of it
+        document.addEventListener('click', function(event) {
+            if (!supportDialog.contains(event.target) && !chatBubble.contains(event.target)) {
+                supportDialog.classList.remove('active');
+            }
+        });
     </script>
 </body>
 </html>
