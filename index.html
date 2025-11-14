@@ -471,14 +471,14 @@
         // Initialize the LLM model
         async function initializeModel() {
             try {
-                modelStatus.textContent = 'Loading AI model (Qwen2.5-0.5B)... This may take a moment on first load.';
+                modelStatus.textContent = 'Loading AI model (DistilGPT2)... This may take a moment on first load.';
                 progressFill.style.width = '10%';
 
                 // Create text generation pipeline
-                // Using Qwen2.5-0.5B-Instruct - optimized for chat, ~500MB
+                // Using DistilGPT2 - small, fast, reliable (~80MB)
                 generator = await pipeline(
                     'text-generation',
-                    'Xenova/Qwen2.5-0.5B-Instruct',
+                    'Xenova/distilgpt2',
                     {
                         progress_callback: (progress) => {
                             if (progress.status === 'downloading') {
@@ -488,13 +488,16 @@
                             } else if (progress.status === 'loading') {
                                 progressFill.style.width = '90%';
                                 modelStatus.textContent = 'Loading model into memory...';
+                            } else if (progress.status === 'ready') {
+                                progressFill.style.width = '95%';
+                                modelStatus.textContent = 'Almost ready...';
                             }
                         }
                     }
                 );
 
                 progressFill.style.width = '100%';
-                modelStatus.textContent = '✅ AI Ready! Powered by Qwen2.5-0.5B (offline)';
+                modelStatus.textContent = '✅ AI Ready! Powered by DistilGPT2 (offline)';
 
                 // Enable chat input
                 chatInput.disabled = false;
