@@ -471,14 +471,14 @@
         // Initialize the LLM model
         async function initializeModel() {
             try {
-                modelStatus.textContent = 'Loading AI model (SmolLM-360M)... This may take a moment on first load.';
+                modelStatus.textContent = 'Loading AI model (Qwen2.5-0.5B)... This may take a moment on first load.';
                 progressFill.style.width = '10%';
 
-                // Create text generation pipeline with SmolLM
-                // Using SmolLM-360M for small size (~200MB)
+                // Create text generation pipeline
+                // Using Qwen2.5-0.5B-Instruct - optimized for chat, ~500MB
                 generator = await pipeline(
                     'text-generation',
-                    'HuggingFaceTB/SmolLM-360M-Instruct',
+                    'Xenova/Qwen2.5-0.5B-Instruct',
                     {
                         progress_callback: (progress) => {
                             if (progress.status === 'downloading') {
@@ -494,7 +494,7 @@
                 );
 
                 progressFill.style.width = '100%';
-                modelStatus.textContent = '✅ AI Ready! Powered by SmolLM-360M (offline)';
+                modelStatus.textContent = '✅ AI Ready! Powered by Qwen2.5-0.5B (offline)';
 
                 // Enable chat input
                 chatInput.disabled = false;
