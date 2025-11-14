@@ -550,45 +550,31 @@
             chatInput.disabled = true;
 
             try {
-                // Flan-T5 is instruction-tuned, so we can ask questions directly
-                // Add context from recent conversation if available
-                let prompt = userMessage;
-
-                // Add recent context for better conversation flow
-                const recentHistory = conversationHistory.slice(-2); // Last exchange
-                if (recentHistory.length > 0) {
-                    let context = '';
-                    for (const msg of recentHistory) {
-                        if (msg.role === 'user') {
-                            context += `Previous question: ${msg.content}\n`;
-                        } else {
-                            context += `Previous answer: ${msg.content}\n`;
-                        }
-                    }
-                    prompt = context + `Question: ${userMessage}`;
-                }
+                // Clean, simple prompt - no context for Flan-T5
+                // Just the question directly
+                const prompt = userMessage;
 
                 // Generate response - Flan-T5 returns direct answers
                 const result = await generator(prompt, {
-                    max_new_tokens: 100,
-                    temperature: 0.7,
-                    do_sample: true,
-                    top_k: 50,
+                    max_new_tokens: 50,  // Shorter to avoid repetition
+                    temperature: 0.6,    // Lower for more focused output
+                    do_sample: false,    // Greedy decoding for consistency
+                    num_beams: 2,        // Beam search for better quality
                 });
 
                 // Extract the generated text - text2text-generation returns it directly
                 let finalResponse = result[0].generated_text.trim();
 
-                // Fallback if response is empty
-                if (!finalResponse || finalResponse.length < 2) {
-                    finalResponse = "I'm not sure how to answer that. Could you rephrase your question?";
+                // Fallback if response is empty or nonsensical
+                if (!finalResponse || finalResponse.length < 2 || finalResponse === userMessage) {
+                    finalResponse = getCatResponse(userMessage);
                 }
 
                 // Add to conversation history
                 conversationHistory.push({ role: 'user', content: userMessage });
                 conversationHistory.push({ role: 'assistant', content: finalResponse });
 
-                // Keep history manageable (last 4 messages = 2 exchanges)
+                // Keep history manageable
                 if (conversationHistory.length > 4) {
                     conversationHistory = conversationHistory.slice(-4);
                 }
@@ -598,13 +584,60 @@
 
             } catch (error) {
                 console.error('Error generating response:', error);
-                addMessage('Sorry, I encountered an error generating a response.', 'system');
+                // Fallback to cat response
+                const catResponse = getCatResponse(userMessage);
+                addMessage(catResponse, 'assistant');
             } finally {
                 isGenerating = false;
                 sendBtn.disabled = false;
                 chatInput.disabled = false;
                 chatInput.focus();
             }
+        }
+
+        // Fun cat-themed responses as fallback
+        function getCatResponse(message) {
+            const lowerMsg = message.toLowerCase();
+
+            // Model/identity questions
+            if (lowerMsg.includes('model') || lowerMsg.includes('llm') || lowerMsg.includes('what are you')) {
+                return "I'm a cat-powered AI running Flan-T5-Small in your browser! Meow! 🐱";
+            }
+
+            // Cat-related
+            if (lowerMsg.includes('cat') || lowerMsg.includes('meow')) {
+                const catResponses = [
+                    "Meow! 😺",
+                    "I'm a cat person myself. Obviously. 🐱",
+                    "Cats are the superior species, obviously!",
+                    "Purr purr... what were you saying?",
+                ];
+                return catResponses[Math.floor(Math.random() * catResponses.length)];
+            }
+
+            // Moon-related
+            if (lowerMsg.includes('moon')) {
+                return "The moon belongs to cats! Haven't you heard? 🌙🐱";
+            }
+
+            // Greetings
+            if (lowerMsg.match(/^(hi|hello|hey|sup|yo)/)) {
+                const greetings = [
+                    "Hello, human! Ready to discuss important cat matters?",
+                    "Meow! What brings you to the moon today?",
+                    "Hey there! I'm just a cat on the moon, living my best life. 🌙",
+                ];
+                return greetings[Math.floor(Math.random() * greetings.length)];
+            }
+
+            // Default responses
+            const defaults = [
+                "That's an interesting question! As a cat, I have strong opinions about it. 😺",
+                "Hmm, let me think about that while I take a cat nap... 💤",
+                "I'm just a simple moon cat. My expertise is mostly in napping and moon ownership. 🌙",
+                "Fascinating! Tell me more while I knock things off this lunar surface. 🐾",
+            ];
+            return defaults[Math.floor(Math.random() * defaults.length)];
         }
 
         // Send message handler
