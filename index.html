@@ -494,17 +494,17 @@
                     modelStatus.textContent = '⚠️ WebGPU not available - using slow CPU mode';
                     addMessage('Note: Your browser doesn\'t support WebGPU. Responses will be slow. For better performance, use Chrome/Edge 113+.', 'system');
                 } else {
-                    modelStatus.textContent = 'Loading AI model (DistilGPT2 with WebGPU)...';
+                    modelStatus.textContent = 'Loading AI model (Flan-T5 with WebGPU)...';
                     addMessage('✨ WebGPU detected! Using GPU acceleration for faster responses.', 'system');
                 }
 
                 progressFill.style.width = '10%';
 
-                // Create text generation pipeline
-                // Using DistilGPT2 - small, fast, reliable (~80MB)
+                // Create text2text generation pipeline
+                // Using Flan-T5-Small - instruction-tuned for Q&A (~300MB)
                 generator = await pipeline(
-                    'text-generation',
-                    'Xenova/distilgpt2',
+                    'text2text-generation',
+                    'Xenova/flan-t5-small',
                     {
                         device: hasWebGPU ? 'webgpu' : 'wasm',
                         progress_callback: (progress) => {
@@ -532,7 +532,7 @@
                 chatInput.focus();
 
                 // Add welcome message
-                addMessage('Hello! I\'m a cat-powered AI running in your browser. Ask me anything! 🐱', 'assistant');
+                addMessage('Hello! I\'m a cat-powered AI assistant. I can answer questions and help with tasks. What would you like to know? 🐱', 'assistant');
 
             } catch (error) {
                 console.error('Error loading model:', error);
@@ -550,66 +550,47 @@
             chatInput.disabled = true;
 
             try {
-                // Simplified prompt - DistilGPT2 works better with completion format
-                // Build a simple Q&A context from recent history
-                let contextPrompt = '';
-                const recentHistory = conversationHistory.slice(-4); // Last 2 exchanges
+                // Flan-T5 is instruction-tuned, so we can ask questions directly
+                // Add context from recent conversation if available
+                let prompt = userMessage;
 
-                for (const msg of recentHistory) {
-                    if (msg.role === 'user') {
-                        contextPrompt += `Q: ${msg.content}\n`;
-                    } else {
-                        contextPrompt += `A: ${msg.content}\n`;
+                // Add recent context for better conversation flow
+                const recentHistory = conversationHistory.slice(-2); // Last exchange
+                if (recentHistory.length > 0) {
+                    let context = '';
+                    for (const msg of recentHistory) {
+                        if (msg.role === 'user') {
+                            context += `Previous question: ${msg.content}\n`;
+                        } else {
+                            context += `Previous answer: ${msg.content}\n`;
+                        }
                     }
+                    prompt = context + `Question: ${userMessage}`;
                 }
 
-                const prompt = contextPrompt + `Q: ${userMessage}\nA:`;
-
-                // Generate response with anti-repetition settings
+                // Generate response - Flan-T5 returns direct answers
                 const result = await generator(prompt, {
-                    max_new_tokens: 60,  // Shorter to avoid repetition
-                    temperature: 0.8,     // Slightly higher for creativity
+                    max_new_tokens: 100,
+                    temperature: 0.7,
                     do_sample: true,
-                    top_k: 40,           // Reduced for more focused output
-                    top_p: 0.85,         // Slightly lower
-                    repetition_penalty: 1.3,  // Prevent word repetition
-                    no_repeat_ngram_size: 3,  // Don't repeat 3-grams
+                    top_k: 50,
                 });
 
-                // Extract the generated text
-                let responseText = result[0].generated_text;
+                // Extract the generated text - text2text-generation returns it directly
+                let finalResponse = result[0].generated_text.trim();
 
-                // Extract just the new answer after "A:"
-                let finalResponse = responseText.substring(prompt.length).trim();
-
-                // Clean up: stop at next question or newlines
-                const stopPatterns = ['\nQ:', '\n\n', 'User:', 'Assistant:'];
-                for (const pattern of stopPatterns) {
-                    const idx = finalResponse.indexOf(pattern);
-                    if (idx !== -1) {
-                        finalResponse = finalResponse.substring(0, idx);
-                    }
-                }
-
-                finalResponse = finalResponse.trim();
-
-                // Fallback if response is empty or too short
-                if (!finalResponse || finalResponse.length < 3) {
-                    finalResponse = "I'm not sure how to respond to that. Could you rephrase your question?";
-                }
-
-                // Limit response length
-                if (finalResponse.length > 200) {
-                    finalResponse = finalResponse.substring(0, 200).trim() + '...';
+                // Fallback if response is empty
+                if (!finalResponse || finalResponse.length < 2) {
+                    finalResponse = "I'm not sure how to answer that. Could you rephrase your question?";
                 }
 
                 // Add to conversation history
                 conversationHistory.push({ role: 'user', content: userMessage });
                 conversationHistory.push({ role: 'assistant', content: finalResponse });
 
-                // Keep history manageable (last 6 messages total)
-                if (conversationHistory.length > 6) {
-                    conversationHistory = conversationHistory.slice(-6);
+                // Keep history manageable (last 4 messages = 2 exchanges)
+                if (conversationHistory.length > 4) {
+                    conversationHistory = conversationHistory.slice(-4);
                 }
 
                 // Display response
