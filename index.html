@@ -160,18 +160,20 @@
             position: fixed;
             bottom: 110px;
             right: 30px;
-            width: 350px;
+            width: 400px;
             max-width: calc(100vw - 60px);
+            max-height: 600px;
             background: white;
             border-radius: 20px;
             box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
             z-index: 999;
             overflow: hidden;
             animation: slideUp 0.3s ease-out;
+            flex-direction: column;
         }
 
         .support-dialog.active {
-            display: block;
+            display: flex;
         }
 
         @keyframes slideUp {
@@ -220,20 +222,23 @@
         }
 
         .dialog-content {
-            padding: 20px;
-            text-align: center;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
         }
 
         .cat-image-container {
             width: 100%;
-            height: 250px;
+            height: 120px;
             background: #f5f5f5;
             border-radius: 10px;
             overflow: hidden;
-            margin-bottom: 15px;
+            margin: 15px 15px 10px 15px;
             display: flex;
             justify-content: center;
             align-items: center;
+            flex-shrink: 0;
         }
 
         .cat-image {
@@ -242,31 +247,118 @@
             object-fit: cover;
         }
 
-        .loading {
-            color: #667eea;
-            font-size: 14px;
+        .model-status {
+            padding: 10px 15px;
+            background: #f0f0f0;
+            font-size: 12px;
+            color: #666;
+            text-align: center;
+            flex-shrink: 0;
         }
 
-        .dialog-text {
+        .progress-bar {
+            width: 100%;
+            height: 4px;
+            background: #e0e0e0;
+            margin-top: 5px;
+            border-radius: 2px;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+
+        .chat-messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 15px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .message {
+            max-width: 85%;
+            padding: 10px 14px;
+            border-radius: 15px;
+            font-size: 14px;
+            line-height: 1.4;
+            word-wrap: break-word;
+        }
+
+        .message.user {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            align-self: flex-end;
+            border-bottom-right-radius: 4px;
+        }
+
+        .message.assistant {
+            background: #f0f0f0;
             color: #333;
-            font-size: 14px;
-            line-height: 1.6;
-            margin-bottom: 15px;
+            align-self: flex-start;
+            border-bottom-left-radius: 4px;
         }
 
-        .refresh-btn {
+        .message.system {
+            background: #fff3cd;
+            color: #856404;
+            align-self: center;
+            font-size: 12px;
+            max-width: 95%;
+            text-align: center;
+        }
+
+        .chat-input-container {
+            padding: 15px;
+            border-top: 1px solid #e0e0e0;
+            display: flex;
+            gap: 10px;
+            flex-shrink: 0;
+        }
+
+        .chat-input {
+            flex: 1;
+            padding: 10px 15px;
+            border: 1px solid #ddd;
+            border-radius: 20px;
+            font-size: 14px;
+            outline: none;
+            font-family: 'Arial', sans-serif;
+        }
+
+        .chat-input:focus {
+            border-color: #667eea;
+        }
+
+        .send-btn {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
             border: none;
             padding: 10px 20px;
-            border-radius: 25px;
+            border-radius: 20px;
             cursor: pointer;
             font-size: 14px;
             transition: transform 0.2s ease;
+            white-space: nowrap;
         }
 
-        .refresh-btn:hover {
+        .send-btn:hover:not(:disabled) {
             transform: scale(1.05);
+        }
+
+        .send-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .loading {
+            color: #667eea;
+            font-size: 14px;
         }
     </style>
 </head>
@@ -299,21 +391,28 @@
     <!-- Support Dialog -->
     <div class="support-dialog" id="supportDialog">
         <div class="dialog-header">
-            <h3>🐱 Cat Support</h3>
+            <h3>🐱 Cat AI Support</h3>
             <button class="close-btn" id="closeBtn">×</button>
         </div>
         <div class="dialog-content">
             <div class="cat-image-container" id="catImageContainer">
                 <div class="loading">Loading cat...</div>
             </div>
-            <div class="dialog-text">
-                Need help? Here's a supportive cat to brighten your day! 😺
+            <div class="model-status" id="modelStatus">
+                Initializing AI... ⏳
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progressFill"></div>
+                </div>
             </div>
-            <button class="refresh-btn" id="refreshBtn">New Cat 🔄</button>
+            <div class="chat-messages" id="chatMessages"></div>
+            <div class="chat-input-container">
+                <input type="text" class="chat-input" id="chatInput" placeholder="Ask the cat anything..." disabled>
+                <button class="send-btn" id="sendBtn" disabled>Send</button>
+            </div>
         </div>
     </div>
 
-    <script>
+    <script type="module">
         // Generate random stars
         const starsContainer = document.getElementById('stars');
         for (let i = 0; i < 100; i++) {
@@ -325,37 +424,169 @@
             starsContainer.appendChild(star);
         }
 
-        // Chat bubble and support dialog functionality
+        // Import Transformers.js
+        const { pipeline } = await import('https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2');
+
+        // DOM elements
         const chatBubble = document.getElementById('chatBubble');
         const supportDialog = document.getElementById('supportDialog');
         const closeBtn = document.getElementById('closeBtn');
-        const refreshBtn = document.getElementById('refreshBtn');
         const catImageContainer = document.getElementById('catImageContainer');
+        const modelStatus = document.getElementById('modelStatus');
+        const progressFill = document.getElementById('progressFill');
+        const chatMessages = document.getElementById('chatMessages');
+        const chatInput = document.getElementById('chatInput');
+        const sendBtn = document.getElementById('sendBtn');
+
+        // LLM state
+        let generator = null;
+        let isGenerating = false;
+        let conversationHistory = [];
 
         // Function to load a random cat from CATAAS
         function loadRandomCat() {
-            // Clear the container
             catImageContainer.innerHTML = '<div class="loading">Loading cat...</div>';
-
-            // Create a new image element
             const img = document.createElement('img');
             img.className = 'cat-image';
-
-            // Add timestamp to prevent caching and get a truly random cat each time
             const timestamp = new Date().getTime();
             img.src = `https://cataas.com/cat?timestamp=${timestamp}`;
-
-            // Replace loading text with image once it loads
             img.onload = function() {
                 catImageContainer.innerHTML = '';
                 catImageContainer.appendChild(img);
             };
-
-            // Handle error case
             img.onerror = function() {
-                catImageContainer.innerHTML = '<div class="loading">Failed to load cat 😿</div>';
+                catImageContainer.innerHTML = '<div class="loading">😺</div>';
             };
         }
+
+        // Add message to chat
+        function addMessage(content, role) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${role}`;
+            messageDiv.textContent = content;
+            chatMessages.appendChild(messageDiv);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+
+        // Initialize the LLM model
+        async function initializeModel() {
+            try {
+                modelStatus.textContent = 'Loading AI model (SmolLM-360M)... This may take a moment on first load.';
+                progressFill.style.width = '10%';
+
+                // Create text generation pipeline with SmolLM
+                // Using SmolLM-360M for small size (~200MB)
+                generator = await pipeline(
+                    'text-generation',
+                    'HuggingFaceTB/SmolLM-360M-Instruct',
+                    {
+                        progress_callback: (progress) => {
+                            if (progress.status === 'downloading') {
+                                const percent = Math.round((progress.loaded / progress.total) * 100);
+                                progressFill.style.width = percent + '%';
+                                modelStatus.textContent = `Downloading model... ${percent}%`;
+                            } else if (progress.status === 'loading') {
+                                progressFill.style.width = '90%';
+                                modelStatus.textContent = 'Loading model into memory...';
+                            }
+                        }
+                    }
+                );
+
+                progressFill.style.width = '100%';
+                modelStatus.textContent = '✅ AI Ready! Powered by SmolLM-360M (offline)';
+
+                // Enable chat input
+                chatInput.disabled = false;
+                sendBtn.disabled = false;
+                chatInput.focus();
+
+                // Add welcome message
+                addMessage('Hello! I\'m a cat-powered AI assistant running entirely in your browser. How can I help you today? 🐱', 'assistant');
+
+            } catch (error) {
+                console.error('Error loading model:', error);
+                modelStatus.textContent = '❌ Failed to load AI model. Please refresh.';
+                addMessage('Sorry, I encountered an error loading the AI model. Please try refreshing the page.', 'system');
+            }
+        }
+
+        // Generate response from the model
+        async function generateResponse(userMessage) {
+            if (isGenerating || !generator) return;
+
+            isGenerating = true;
+            sendBtn.disabled = true;
+            chatInput.disabled = true;
+
+            try {
+                // Add user message to history
+                conversationHistory.push({ role: 'user', content: userMessage });
+
+                // Create prompt with conversation context
+                const prompt = conversationHistory
+                    .map(msg => `${msg.role === 'user' ? 'User' : 'Assistant'}: ${msg.content}`)
+                    .join('\n') + '\nAssistant:';
+
+                // Generate response
+                const result = await generator(prompt, {
+                    max_new_tokens: 150,
+                    temperature: 0.7,
+                    do_sample: true,
+                    top_k: 50,
+                    top_p: 0.9,
+                });
+
+                // Extract the generated text
+                let responseText = result[0].generated_text;
+
+                // Try to extract just the assistant's response
+                const assistantMatch = responseText.split('Assistant:').pop().split('User:')[0].trim();
+                const finalResponse = assistantMatch || responseText.substring(prompt.length).trim();
+
+                // Add to conversation history
+                conversationHistory.push({ role: 'assistant', content: finalResponse });
+
+                // Keep history manageable (last 6 messages)
+                if (conversationHistory.length > 6) {
+                    conversationHistory = conversationHistory.slice(-6);
+                }
+
+                // Display response
+                addMessage(finalResponse, 'assistant');
+
+            } catch (error) {
+                console.error('Error generating response:', error);
+                addMessage('Sorry, I encountered an error generating a response.', 'system');
+            } finally {
+                isGenerating = false;
+                sendBtn.disabled = false;
+                chatInput.disabled = false;
+                chatInput.focus();
+            }
+        }
+
+        // Send message handler
+        async function sendMessage() {
+            const message = chatInput.value.trim();
+            if (!message || isGenerating) return;
+
+            // Add user message to chat
+            addMessage(message, 'user');
+            chatInput.value = '';
+
+            // Generate response
+            await generateResponse(message);
+        }
+
+        // Event listeners
+        sendBtn.addEventListener('click', sendMessage);
+
+        chatInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                sendMessage();
+            }
+        });
 
         // Toggle dialog visibility
         chatBubble.addEventListener('click', function() {
@@ -363,6 +594,11 @@
             if (!isActive) {
                 supportDialog.classList.add('active');
                 loadRandomCat();
+
+                // Initialize model on first open
+                if (!generator && !isGenerating) {
+                    initializeModel();
+                }
             } else {
                 supportDialog.classList.remove('active');
             }
@@ -371,11 +607,6 @@
         // Close dialog
         closeBtn.addEventListener('click', function() {
             supportDialog.classList.remove('active');
-        });
-
-        // Refresh cat image
-        refreshBtn.addEventListener('click', function() {
-            loadRandomCat();
         });
 
         // Close dialog when clicking outside of it
