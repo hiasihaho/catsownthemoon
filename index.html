@@ -1118,22 +1118,24 @@
                 progressFill.style.width = '5%';
 
                 // Create custom model configuration for Qwen3-4B-Thinking
-                const customModel = {
-                    model: "https://huggingface.co/vladbuinceanu/Qwen3-4B-Thinking-2507-q4f32_1-MLC",
-                    model_id: "Qwen3-4B-Thinking-q4f32_1",
-                    model_lib: "https://huggingface.co/vladbuinceanu/Qwen3-4B-Thinking-2507-q4f32_1-MLC/resolve/main/Qwen3-4B-Thinking-2507-q4f32_1-ctx4k_cs1k-webgpu.wasm",
-                    vram_required_MB: 2048,
-                    low_resource_required: false,
-                    required_features: ["shader-f16"]
+                // The model reuses a compatible .wasm library from WebLLM CDN
+                const appConfig = {
+                    ...webllm.prebuiltAppConfig,
+                    model_list: [
+                        {
+                            model: "https://huggingface.co/vladbuinceanu/Qwen3-4B-Thinking-2507-q4f32_1-MLC",
+                            model_id: "Qwen3-4B-Thinking-2507-q4f32_1-MLC",
+                            model_lib: webllm.modelLibURLPrefix + webllm.modelVersion + '/Qwen3-4B-q4f32_1-ctx4k_cs1k-webgpu.wasm',
+                            overrides: { context_window_size: 4096 }
+                        }
+                    ]
                 };
 
                 // Create WebLLM engine with custom model
                 engine = await webllm.CreateMLCEngine(
-                    "Qwen3-4B-Thinking-q4f32_1",
+                    "Qwen3-4B-Thinking-2507-q4f32_1-MLC",
                     {
-                        appConfig: {
-                            model_list: [customModel]
-                        },
+                        appConfig: appConfig,
                         initProgressCallback: (progress) => {
                             const percent = Math.round(progress.progress * 100);
                             progressFill.style.width = percent + '%';
@@ -1192,11 +1194,20 @@
                 ];
 
                 // Generate response with Qwen3-4B-Thinking
+                // Enable thinking capability with <think> tags
                 const reply = await engine.chat.completions.create({
                     messages: messages,
                     max_tokens: 200,
                     temperature: 0.7,
                     top_p: 0.9,
+                    extra_body: {
+                        enable_thinking: true,
+                        max_thinking_tokens: 1000,
+                        chat_template_kwargs: {
+                            enable_thinking: true,
+                            max_thinking_tokens: 1000
+                        }
+                    }
                 });
 
                 // Extract response
