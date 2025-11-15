@@ -381,6 +381,48 @@
             text-align: center;
         }
 
+        .thinking-block {
+            background: linear-gradient(135deg, #e0f2fe 0%, #dbeafe 100%);
+            border-left: 4px solid #0284c7;
+            padding: 12px 16px;
+            margin: 8px 0;
+            border-radius: 8px;
+            font-size: 13px;
+            line-height: 1.5;
+            color: #0c4a6e;
+            font-style: italic;
+            position: relative;
+        }
+
+        .thinking-block::before {
+            content: "🧠 Thinking Process";
+            display: block;
+            font-weight: bold;
+            margin-bottom: 6px;
+            font-style: normal;
+            color: #075985;
+        }
+
+        .thinking-toggle {
+            cursor: pointer;
+            color: #0284c7;
+            font-size: 11px;
+            margin-top: 4px;
+            text-decoration: underline;
+            user-select: none;
+        }
+
+        .thinking-content {
+            white-space: pre-wrap;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+
+        .thinking-content.collapsed {
+            max-height: 0;
+            overflow: hidden;
+        }
+
         .chat-input-container {
             padding: 15px;
             border-top: 1px solid #e0e0e0;
@@ -760,11 +802,8 @@
             starsContainer.appendChild(star);
         }
 
-        // Import Transformers.js
-        const { pipeline, env } = await import('https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2');
-
-        // Enable WebGPU for GPU acceleration (much faster!)
-        env.backends.onnx.wasm.numThreads = 1; // Single thread for WASM fallback
+        // Import WebLLM
+        const webllm = await import('https://esm.run/@mlc-ai/web-llm');
 
         // DOM elements
         const chatBubble = document.getElementById('chatBubble');
@@ -778,7 +817,7 @@
         const sendBtn = document.getElementById('sendBtn');
 
         // LLM state
-        let generator = null;
+        let engine = null;
         let isGenerating = false;
         let conversationHistory = [];
 
@@ -795,7 +834,7 @@
             { q: "what is your name", a: "I'm Moon Cat, the AI assistant who lives on the moon! Meow! 🌙😺" },
             { q: "who are you", a: "I'm a cat-powered AI running in your browser. I own the moon and love helping humans!" },
             { q: "what can you do", a: "I can chat about anything, answer questions, and share my cat wisdom! Plus, I'm learning from our conversations!" },
-            { q: "how do you work", a: "I'm powered by Mistral-7B AI model running in your browser with WebGPU acceleration. I also learn from your feedback! ✨" },
+            { q: "how do you work", a: "I'm powered by Qwen3-4B-Thinking AI model running in your browser with WebGPU acceleration. I can even show you my thought process! I also learn from your feedback! ✨🧠" },
             { q: "do you like the moon", a: "The moon belongs to cats! It's the perfect place - quiet, peaceful, and excellent for naps! 🌙" },
             { q: "why cats on the moon", a: "Because cats are naturally drawn to high places, and the moon is the highest place of all! Plus, excellent bird watching. 😺" },
             { q: "what do you think about dogs", a: "Dogs are fine... I suppose. They're very enthusiastic. A bit too enthusiastic if you ask me! 🐕" },
@@ -973,11 +1012,55 @@
             };
         }
 
+        // Parse thinking blocks from response
+        function parseThinkingBlocks(content) {
+            const thinkRegex = /<think>([\s\S]*?)<\/think>/g;
+            const thoughts = [];
+            let match;
+
+            while ((match = thinkRegex.exec(content)) !== null) {
+                thoughts.push(match[1].trim());
+            }
+
+            // Remove thinking blocks from main content
+            const cleanContent = content.replace(thinkRegex, '').trim();
+
+            return { thoughts, cleanContent };
+        }
+
         // Add message to chat
         function addMessage(content, role, questionContext = null) {
             const messageDiv = document.createElement('div');
             messageDiv.className = `message ${role}`;
-            messageDiv.textContent = content;
+
+            // Parse thinking blocks for assistant messages
+            let thoughts = [];
+            let displayContent = content;
+
+            if (role === 'assistant') {
+                const parsed = parseThinkingBlocks(content);
+                thoughts = parsed.thoughts;
+                displayContent = parsed.cleanContent;
+            }
+
+            messageDiv.textContent = displayContent;
+
+            // Add thinking blocks if present
+            if (thoughts.length > 0) {
+                thoughts.forEach(thought => {
+                    const thinkDiv = document.createElement('div');
+                    thinkDiv.className = 'thinking-block';
+
+                    const thinkContent = document.createElement('div');
+                    thinkContent.className = 'thinking-content';
+                    thinkContent.textContent = thought;
+
+                    thinkDiv.appendChild(thinkContent);
+
+                    // Insert before the text content
+                    messageDiv.insertBefore(thinkDiv, messageDiv.firstChild);
+                });
+            }
 
             // Add rating buttons for assistant messages
             if (role === 'assistant' && questionContext) {
@@ -991,7 +1074,8 @@
                 thumbsUp.onclick = async () => {
                     thumbsUp.classList.add('active');
                     thumbsDown.classList.remove('active');
-                    await saveQAPair(questionContext, content, 'up');
+                    // Store the clean content without thinking blocks
+                    await saveQAPair(questionContext, displayContent, 'up');
                     const stats = await getLearningStats();
                     showLearningNotification(`✨ Learned! (${stats.liked} good answers stored)`);
                 };
@@ -1003,7 +1087,7 @@
                 thumbsDown.onclick = async () => {
                     thumbsDown.classList.add('active');
                     thumbsUp.classList.remove('active');
-                    await saveQAPair(questionContext, content, 'down');
+                    await saveQAPair(questionContext, displayContent, 'down');
                     showLearningNotification('📝 Noted. I\'ll try to avoid this.');
                 };
 
@@ -1023,40 +1107,32 @@
                 const hasWebGPU = await checkWebGPU();
 
                 if (!hasWebGPU) {
-                    modelStatus.textContent = '⚠️ WebGPU not available - using slow CPU mode';
-                    addMessage('Note: Your browser doesn\'t support WebGPU. Responses will be slow. For better performance, use Chrome/Edge 113+.', 'system');
+                    modelStatus.textContent = '⚠️ WebGPU not available - model requires WebGPU';
+                    addMessage('Note: Your browser doesn\'t support WebGPU. This model requires WebGPU. Please use Chrome/Edge 113+.', 'system');
+                    return;
                 } else {
-                    modelStatus.textContent = 'Loading AI model (Mistral-7B with WebGPU)...';
-                    addMessage('✨ WebGPU detected! Using GPU acceleration for faster responses.', 'system');
+                    modelStatus.textContent = 'Loading AI model (Qwen3-4B-Thinking with WebGPU)...';
+                    addMessage('✨ WebGPU detected! Loading Qwen3-4B-Thinking model with reasoning capability...', 'system');
                 }
 
-                progressFill.style.width = '10%';
+                progressFill.style.width = '5%';
 
-                // Create text generation pipeline
-                // Using Mistral-7B-Instruct-v0.2 - powerful chat model (~4-5GB quantized)
-                generator = await pipeline(
-                    'text-generation',
-                    'Xenova/Mistral-7B-Instruct-v0.2-q4f16_1',
+                // Create WebLLM engine
+                // Using Qwen3-4B-Thinking - reasoning model with <think> blocks (~2-3GB)
+                engine = await webllm.CreateMLCEngine(
+                    "vladbuinceanu/Qwen3-4B-Thinking-2507-q4f32_1-MLC",
                     {
-                        device: hasWebGPU ? 'webgpu' : 'wasm',
-                        progress_callback: (progress) => {
-                            if (progress.status === 'downloading') {
-                                const percent = Math.round((progress.loaded / progress.total) * 100);
-                                progressFill.style.width = percent + '%';
-                                modelStatus.textContent = `Downloading model... ${percent}%`;
-                            } else if (progress.status === 'loading') {
-                                progressFill.style.width = '90%';
-                                modelStatus.textContent = 'Loading model into memory...';
-                            } else if (progress.status === 'ready') {
-                                progressFill.style.width = '95%';
-                                modelStatus.textContent = 'Almost ready...';
-                            }
+                        initProgressCallback: (progress) => {
+                            const percent = Math.round(progress.progress * 100);
+                            progressFill.style.width = percent + '%';
+                            modelStatus.textContent = progress.text || `Loading model... ${percent}%`;
+                            console.log('Progress:', progress);
                         }
                     }
                 );
 
                 progressFill.style.width = '100%';
-                modelStatus.textContent = `✅ AI Ready! ${hasWebGPU ? '(GPU accelerated)' : '(CPU mode - slow)'}`;
+                modelStatus.textContent = '✅ AI Ready! (GPU accelerated with thinking capability 🧠)';
 
                 // Enable chat input
                 chatInput.disabled = false;
@@ -1064,7 +1140,7 @@
                 chatInput.focus();
 
                 // Add welcome message
-                addMessage('Hello! I\'m a cat-powered AI assistant running Mistral-7B. I can answer questions and help with tasks. What would you like to know? 🐱', 'assistant');
+                addMessage('Hello! I\'m a cat-powered AI assistant running Qwen3-4B-Thinking. I can answer questions and even show you my thought process! What would you like to know? 🐱🧠', 'assistant');
 
             } catch (error) {
                 console.error('Error loading model:', error);
@@ -1075,7 +1151,7 @@
 
         // Generate response from the model with RAG
         async function generateResponse(userMessage) {
-            if (isGenerating || !generator) return;
+            if (isGenerating || !engine) return;
 
             isGenerating = true;
             sendBtn.disabled = true;
@@ -1085,53 +1161,51 @@
                 // Search for similar questions using ultra-clever enhanced matching
                 const similarPairs = await findSimilarQuestionsEnhanced(userMessage, 3);
 
-                // Build Mistral-style prompt with instruction format
+                // Build system prompt with RAG examples
                 let systemPrompt = "You are a helpful, friendly cat AI assistant who lives on the moon. Keep responses concise and fun.";
 
-                let fewShotExamples = '';
                 if (similarPairs.length > 0) {
-                    fewShotExamples = '\n\nHere are some example responses in your style:\n';
+                    systemPrompt += '\n\nHere are some example responses in your style:\n';
                     for (const pair of similarPairs) {
-                        fewShotExamples += `Q: ${pair.question}\nA: ${pair.answer}\n\n`;
+                        systemPrompt += `Q: ${pair.question}\nA: ${pair.answer}\n\n`;
                     }
                     console.log(`🔍 Found ${similarPairs.length} similar examples for RAG`);
                 }
 
-                // Mistral instruction format: [INST] instruction [/INST]
-                const prompt = `<s>[INST] ${systemPrompt}${fewShotExamples}\n\nQuestion: ${userMessage} [/INST]`;
+                // Build conversation messages for WebLLM
+                const messages = [
+                    { role: 'system', content: systemPrompt },
+                    ...conversationHistory.slice(-4), // Last 2 exchanges
+                    { role: 'user', content: userMessage }
+                ];
 
-                // Generate response with Mistral
-                const result = await generator(prompt, {
-                    max_new_tokens: 100,
+                // Generate response with Qwen3-4B-Thinking
+                const reply = await engine.chat.completions.create({
+                    messages: messages,
+                    max_tokens: 200,
                     temperature: 0.7,
-                    do_sample: true,
-                    top_k: 50,
                     top_p: 0.9,
-                    repetition_penalty: 1.1,
                 });
 
-                // Extract just the new generated text (remove the prompt)
-                let fullText = result[0].generated_text;
-                let finalResponse = fullText.substring(prompt.length).trim();
-
-                // Clean up any leftover special tokens
-                finalResponse = finalResponse.replace(/<s>|<\/s>|\[INST\]|\[\/INST\]/g, '').trim();
+                // Extract response
+                let finalResponse = reply.choices[0].message.content.trim();
 
                 // Fallback if response is empty or nonsensical
                 if (!finalResponse || finalResponse.length < 2) {
                     finalResponse = getCatResponse(userMessage);
                 }
 
-                // Add to conversation history
+                // Add to conversation history (store clean content without thinking blocks for history)
+                const { cleanContent } = parseThinkingBlocks(finalResponse);
                 conversationHistory.push({ role: 'user', content: userMessage });
-                conversationHistory.push({ role: 'assistant', content: finalResponse });
+                conversationHistory.push({ role: 'assistant', content: cleanContent });
 
-                // Keep history manageable
+                // Keep history manageable (last 4 messages = 2 exchanges)
                 if (conversationHistory.length > 4) {
                     conversationHistory = conversationHistory.slice(-4);
                 }
 
-                // Display response with rating buttons (pass question for context)
+                // Display response with thinking blocks and rating buttons
                 addMessage(finalResponse, 'assistant', userMessage);
 
             } catch (error) {
@@ -1153,7 +1227,7 @@
 
             // Model/identity questions
             if (lowerMsg.includes('model') || lowerMsg.includes('llm') || lowerMsg.includes('what are you')) {
-                return "I'm a cat-powered AI running Mistral-7B in your browser! Meow! 🐱";
+                return "I'm a cat-powered AI running Qwen3-4B-Thinking in your browser! I can even show you how I think! Meow! 🐱🧠";
             }
 
             // Cat-related
@@ -1231,7 +1305,7 @@
                 }
 
                 // Initialize model on first open
-                if (!generator && !isGenerating) {
+                if (!engine && !isGenerating) {
                     initializeModel();
                 }
             } else {
