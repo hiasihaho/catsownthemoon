@@ -834,7 +834,7 @@
             { q: "what is your name", a: "I'm Moon Cat, the AI assistant who lives on the moon! Meow! 🌙😺" },
             { q: "who are you", a: "I'm a cat-powered AI running in your browser. I own the moon and love helping humans!" },
             { q: "what can you do", a: "I can chat about anything, answer questions, and share my cat wisdom! Plus, I'm learning from our conversations!" },
-            { q: "how do you work", a: "I'm powered by Qwen3-4B-Thinking AI model running in your browser with WebGPU acceleration. I can even show you my thought process! I also learn from your feedback! ✨🧠" },
+            { q: "how do you work", a: "I'm powered by TinyLlama 1.1B AI model running in your browser with WebGPU acceleration. I'm tiny, fast, and learn from your feedback! ✨" },
             { q: "do you like the moon", a: "The moon belongs to cats! It's the perfect place - quiet, peaceful, and excellent for naps! 🌙" },
             { q: "why cats on the moon", a: "Because cats are naturally drawn to high places, and the moon is the highest place of all! Plus, excellent bird watching. 😺" },
             { q: "what do you think about dogs", a: "Dogs are fine... I suppose. They're very enthusiastic. A bit too enthusiastic if you ask me! 🐕" },
@@ -1111,31 +1111,17 @@
                     addMessage('Note: Your browser doesn\'t support WebGPU. This model requires WebGPU. Please use Chrome/Edge 113+.', 'system');
                     return;
                 } else {
-                    modelStatus.textContent = 'Loading AI model (Qwen3-4B-Thinking with WebGPU)...';
-                    addMessage('✨ WebGPU detected! Loading Qwen3-4B-Thinking model with reasoning capability...', 'system');
+                    modelStatus.textContent = 'Loading AI model (TinyLlama 1.1B with WebGPU)...';
+                    addMessage('✨ WebGPU detected! Loading TinyLlama 1.1B - tiny, fast & efficient...', 'system');
                 }
 
                 progressFill.style.width = '5%';
 
-                // Create custom model configuration for Qwen3-4B-Thinking
-                // The model reuses a compatible .wasm library from WebLLM CDN
-                const appConfig = {
-                    ...webllm.prebuiltAppConfig,
-                    model_list: [
-                        {
-                            model: "https://huggingface.co/vladbuinceanu/Qwen3-4B-Thinking-2507-q4f32_1-MLC",
-                            model_id: "Qwen3-4B-Thinking-2507-q4f32_1-MLC",
-                            model_lib: webllm.modelLibURLPrefix + webllm.modelVersion + '/Qwen3-4B-q4f32_1-ctx4k_cs1k-webgpu.wasm',
-                            overrides: { context_window_size: 4096 }
-                        }
-                    ]
-                };
-
-                // Create WebLLM engine with custom model
+                // Use TinyLlama 1.1B - super lightweight and fast!
+                // This is an official MLC model, so no custom config needed
                 engine = await webllm.CreateMLCEngine(
-                    "Qwen3-4B-Thinking-2507-q4f32_1-MLC",
+                    "TinyLlama-1.1B-Chat-v0.4-q4f16_1-MLC",
                     {
-                        appConfig: appConfig,
                         initProgressCallback: (progress) => {
                             const percent = Math.round(progress.progress * 100);
                             progressFill.style.width = percent + '%';
@@ -1146,7 +1132,7 @@
                 );
 
                 progressFill.style.width = '100%';
-                modelStatus.textContent = '✅ AI Ready! (GPU accelerated with thinking capability 🧠)';
+                modelStatus.textContent = '✅ AI Ready! (TinyLlama - fast & lightweight 🚀)';
 
                 // Enable chat input
                 chatInput.disabled = false;
@@ -1154,7 +1140,7 @@
                 chatInput.focus();
 
                 // Add welcome message
-                addMessage('Hello! I\'m a cat-powered AI assistant running Qwen3-4B-Thinking. I can answer questions and even show you my thought process! What would you like to know? 🐱🧠', 'assistant');
+                addMessage('Hello! I\'m a cat-powered AI assistant running TinyLlama 1.1B. I\'m tiny but mighty! What would you like to know? 🐱', 'assistant');
 
             } catch (error) {
                 console.error('Error loading model:', error);
@@ -1193,21 +1179,12 @@
                     { role: 'user', content: userMessage }
                 ];
 
-                // Generate response with Qwen3-4B-Thinking
-                // Enable thinking capability with <think> tags
+                // Generate response with TinyLlama
                 const reply = await engine.chat.completions.create({
                     messages: messages,
-                    max_tokens: 200,
+                    max_tokens: 150,
                     temperature: 0.7,
                     top_p: 0.9,
-                    extra_body: {
-                        enable_thinking: true,
-                        max_thinking_tokens: 1000,
-                        chat_template_kwargs: {
-                            enable_thinking: true,
-                            max_thinking_tokens: 1000
-                        }
-                    }
                 });
 
                 // Extract response
@@ -1250,7 +1227,7 @@
 
             // Model/identity questions
             if (lowerMsg.includes('model') || lowerMsg.includes('llm') || lowerMsg.includes('what are you')) {
-                return "I'm a cat-powered AI running Qwen3-4B-Thinking in your browser! I can even show you how I think! Meow! 🐱🧠";
+                return "I'm a cat-powered AI running TinyLlama 1.1B in your browser! I'm tiny but mighty! Meow! 🐱";
             }
 
             // Cat-related
