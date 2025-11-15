@@ -851,6 +851,11 @@
                 console.log('✅ Semantic embeddings ready!');
                 showLearningNotification('🧠 Semantic search enabled!');
 
+                // Update model status if already loaded
+                if (engine && modelStatus) {
+                    modelStatus.textContent = '✅ AI Ready with Semantic Search! 🧠🚀';
+                }
+
                 // Backfill embeddings if DB is already loaded
                 if (learningDB) {
                     backfillEmbeddings();
@@ -967,7 +972,7 @@
         const STORE_NAME = 'qa_pairs';
 
         // Current system prompt for RLHF tracking
-        let currentSystemPrompt = "You are a helpful, friendly cat AI assistant who lives on the moon. Keep responses concise and fun.";
+        let currentSystemPrompt = "You are a helpful, friendly cat AI assistant who lives on the moon. Keep responses concise, fun, and always in English.";
         let lastRAGResults = [];
 
         // Starter knowledge - pre-seeded Q&A pairs for better initial experience
@@ -1091,7 +1096,7 @@
                     inference_params: metadata.inference_params || {
                         temperature: 0.7,
                         top_p: 0.9,
-                        max_tokens: 150
+                        max_tokens: 300
                     },
                     alternative_answers: metadata.alternative_answers || [],
                     category: detectCategory(question),
@@ -1329,7 +1334,13 @@
                 );
 
                 progressFill.style.width = '100%';
-                modelStatus.textContent = '✅ AI Ready! (TinyLlama - fast & lightweight 🚀)';
+
+                // Check if embeddings are ready
+                if (embeddingsReady) {
+                    modelStatus.textContent = '✅ AI Ready with Semantic Search! 🧠🚀';
+                } else {
+                    modelStatus.textContent = '✅ AI Ready! (Semantic search loading in background...) 🚀';
+                }
 
                 // Enable chat input
                 chatInput.disabled = false;
@@ -1337,7 +1348,11 @@
                 chatInput.focus();
 
                 // Add welcome message
-                addMessage('Hello! I\'m a cat-powered AI assistant running TinyLlama 1.1B. I\'m tiny but mighty! What would you like to know? 🐱', 'assistant');
+                let welcomeMsg = 'Hello! I\'m a cat-powered AI assistant running TinyLlama 1.1B. I\'m tiny but mighty! What would you like to know? 🐱';
+                if (!embeddingsReady) {
+                    welcomeMsg += '\n\n💡 Tip: Semantic search is loading in the background (~30 seconds). Responses will improve once ready!';
+                }
+                addMessage(welcomeMsg, 'assistant');
 
             } catch (error) {
                 console.error('Error loading model:', error);
@@ -1359,13 +1374,14 @@
                 const similarPairs = await findSimilarQuestionsEnhanced(userMessage, 3);
 
                 // Build system prompt with RAG examples
-                let systemPrompt = "You are a helpful, friendly cat AI assistant who lives on the moon. Keep responses concise and fun.";
+                let systemPrompt = "You are a helpful, friendly cat AI assistant who lives on the moon. Keep responses concise, fun, and always in English.";
 
                 if (similarPairs.length > 0) {
-                    systemPrompt += '\n\nHere are some example responses in your style:\n';
+                    systemPrompt += '\n\nHere are relevant examples from your knowledge base:\n\n';
                     for (const pair of similarPairs) {
-                        systemPrompt += `Q: ${pair.question}\nA: ${pair.answer}\n\n`;
+                        systemPrompt += `User asked: "${pair.question}"\nYou responded: "${pair.answer}"\n\n`;
                     }
+                    systemPrompt += 'Use these examples as reference, but respond naturally to the current question. Do NOT copy the format - just answer directly.';
                     console.log(`🔍 Found ${similarPairs.length} similar examples for RAG`);
                 }
 
@@ -1379,7 +1395,7 @@
                 // Generate response with TinyLlama
                 const reply = await engine.chat.completions.create({
                     messages: messages,
-                    max_tokens: 150,
+                    max_tokens: 300, // Increased to prevent cutoff
                     temperature: 0.7,
                     top_p: 0.9,
                 });
