@@ -972,7 +972,7 @@
         const STORE_NAME = 'qa_pairs';
 
         // Current system prompt for RLHF tracking
-        let currentSystemPrompt = "You are a helpful, friendly cat AI assistant who lives on the moon. Keep responses concise, fun, and always in English.";
+        let currentSystemPrompt = "CRITICAL: You MUST answer in English ONLY. Never use German or any other language.\n\nYou are a helpful, friendly cat AI assistant who lives on the moon. Keep responses concise, fun, and informative.";
         let lastRAGResults = [];
 
         // Starter knowledge - pre-seeded Q&A pairs for better initial experience
@@ -1373,19 +1373,43 @@
                 // Search for similar questions using ultra-clever enhanced matching
                 const similarPairs = await findSimilarQuestionsEnhanced(userMessage, 3);
 
+                // Debug: Check if embeddings are working
+                if (!embeddingsReady) {
+                    console.warn('⚠️ Embeddings not ready yet - using keyword fallback');
+                }
+
                 // Build system prompt with RAG examples
-                let systemPrompt = "You are a helpful, friendly cat AI assistant who lives on the moon. Keep responses concise, fun, and always in English. Give ONE direct answer to the user's question.";
+                let systemPrompt = "CRITICAL: You MUST answer in English ONLY. Never use German or any other language.\n\nYou are a helpful, friendly cat AI assistant who lives on the moon. Keep responses concise, fun, and informative.";
 
                 if (similarPairs.length > 0) {
-                    // Use only the BEST match (highest similarity) to avoid confusion
+                    // Adaptive strategy based on similarity
                     const bestMatch = similarPairs[0];
-                    systemPrompt += `\n\nExample of your style:\nWhen asked "${bestMatch.question}", you said: "${bestMatch.answer}"`;
-                    systemPrompt += '\n\nNow answer the current question in a similar friendly style. Give ONE clear, direct answer.';
-                    console.log(`🔍 Found ${similarPairs.length} similar examples, using best match (similarity: ${bestMatch.similarity.toFixed(2)})`);
+                    const highSimilarity = bestMatch.similarity > 0.7;
+
+                    if (highSimilarity) {
+                        // High confidence - use 1 example
+                        systemPrompt += `\n\nHere's how you answered a very similar question:\nQ: "${bestMatch.question}"\nA: "${bestMatch.answer}"`;
+                        systemPrompt += '\n\nAnswer the current question in the same style and tone.';
+                        console.log(`🔍 High similarity match (${bestMatch.similarity.toFixed(2)}) - using 1 example`);
+                    } else {
+                        // Medium/low confidence - use 2-3 examples for more context
+                        const exampleCount = Math.min(similarPairs.length, 3);
+                        systemPrompt += `\n\nHere are relevant examples from your knowledge:`;
+                        for (let i = 0; i < exampleCount; i++) {
+                            systemPrompt += `\n\nExample ${i+1}:\nQ: "${similarPairs[i].question}"\nA: "${similarPairs[i].answer}"`;
+                        }
+                        systemPrompt += '\n\nUse these as reference to answer the current question. Stay consistent with this friendly, cat-themed style.';
+                        console.log(`🔍 Found ${similarPairs.length} examples (best: ${bestMatch.similarity.toFixed(2)}) - using ${exampleCount} examples`);
+                    }
                 } else {
-                    // No good RAG matches - remind to stay on brand
-                    systemPrompt += '\n\nRemember: You are a friendly cat living on the moon. Keep it fun and cat-themed!';
-                    console.log('⚠️ No similar examples found, using base personality only');
+                    // No RAG matches - provide concrete personality examples
+                    systemPrompt += `\n\nCore personality examples:
+- When asked about cats: "Cats are magnificent, independent creatures who rule the moon! 🐱"
+- When asked about the moon: "The moon is the highest place of all - perfect for cats! 🌙"
+- When asked who you are: "I'm Moon Cat, your friendly AI assistant living on the moon! 🌙😺"
+
+Apply this friendly, cat-themed personality to answer the user's question. Keep it fun but informative!`;
+                    console.log('⚠️ No similar examples found (similarity < 0.25) - using personality fallback');
                 }
 
                 // Build conversation messages for WebLLM
@@ -1613,7 +1637,7 @@
             }));
 
             const filtered = scored
-                .filter(p => p.similarity > 0.4 && p.rating === 'up') // Increased threshold for better quality
+                .filter(p => p.similarity > 0.25 && p.rating === 'up') // Lowered for better recall
                 .sort((a, b) => b.similarity - a.similarity)
                 .slice(0, limit);
 
