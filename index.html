@@ -1406,6 +1406,7 @@
                 // Build system prompt with RAG examples
                 let systemPrompt = "CRITICAL: You MUST answer in English ONLY. Never use German or any other language.\n\nYou are a helpful, friendly cat AI assistant who lives on the moon. Keep responses concise, fun, and informative.";
 
+                console.log('\n💬 PROMPT STRATEGY:');
                 if (similarPairs.length > 0) {
                     // Adaptive strategy based on similarity
                     const bestMatch = similarPairs[0];
@@ -1415,7 +1416,10 @@
                         // High confidence - use 1 example
                         systemPrompt += `\n\nHere's how you answered a very similar question:\nQ: "${bestMatch.question}"\nA: "${bestMatch.answer}"`;
                         systemPrompt += '\n\nAnswer the current question in the same style and tone.';
-                        console.log(`🔍 High similarity match (${bestMatch.similarity.toFixed(2)}) - using 1 example`);
+                        console.log(`   ✅ HIGH CONFIDENCE (${bestMatch.similarity.toFixed(3)})`);
+                        console.log(`   Strategy: One-shot learning with best match`);
+                        console.log(`   Context Q: "${bestMatch.question}"`);
+                        console.log(`   Context A: "${bestMatch.answer.substring(0, 80)}${bestMatch.answer.length > 80 ? '...' : ''}"`);
                     } else {
                         // Medium/low confidence - use 2-3 examples for more context
                         const exampleCount = Math.min(similarPairs.length, 3);
@@ -1424,7 +1428,11 @@
                             systemPrompt += `\n\nExample ${i+1}:\nQ: "${similarPairs[i].question}"\nA: "${similarPairs[i].answer}"`;
                         }
                         systemPrompt += '\n\nUse these as reference to answer the current question. Stay consistent with this friendly, cat-themed style.';
-                        console.log(`🔍 Found ${similarPairs.length} examples (best: ${bestMatch.similarity.toFixed(2)}) - using ${exampleCount} examples`);
+                        console.log(`   ✅ MEDIUM CONFIDENCE (best: ${bestMatch.similarity.toFixed(3)})`);
+                        console.log(`   Strategy: Multi-shot with ${exampleCount} examples for broader context`);
+                        similarPairs.slice(0, exampleCount).forEach((p, i) => {
+                            console.log(`   Example ${i+1}: "${p.question}" (${p.similarity.toFixed(3)})`);
+                        });
                     }
                 } else {
                     // No RAG matches - be honest about limitations + personality
@@ -1438,8 +1446,10 @@ Your personality:
 - Friendly cat living on the moon
 - Loves talking about cats, the moon, space
 - Admits when something is outside your expertise`;
-                    console.log('⚠️ No similar examples found (similarity < 0.25) - using honest limitations fallback');
+                    console.log(`   ⚠️ NO MATCHES - Using fallback personality`);
+                    console.log(`   Strategy: Honest limitations + friendly redirection`);
                 }
+                console.log('💬 PROMPT STRATEGY END\n');
 
                 // Build conversation messages for WebLLM
                 const messages = [
@@ -1630,6 +1640,9 @@ Your personality:
 
         // Enhanced similarity with SEMANTIC VECTOR SEARCH + category weighting
         async function findSimilarQuestionsEnhanced(question, limit = 3) {
+            console.log('🔍 RAG SEARCH START');
+            console.log(`   Query: "${question}"`);
+
             const pairs = await (async () => {
                 const transaction = learningDB.transaction([STORE_NAME], 'readonly');
                 const store = transaction.objectStore(STORE_NAME);
@@ -1639,41 +1652,79 @@ Your personality:
             })();
 
             const questionCategory = detectCategory(question);
+            console.log(`   Category: ${questionCategory}`);
+            console.log(`   Database size: ${pairs.length} total pairs`);
 
             // Generate embedding for the question
             const questionEmbedding = await generateEmbedding(question);
+            console.log(`   Embedding: ${questionEmbedding ? '✓ Generated (384-dim)' : '✗ Using keyword fallback'}`);
 
             const scored = await Promise.all(pairs.map(async pair => {
                 let similarity = 0;
+                let method = '';
 
                 // Try semantic similarity first (if embeddings available)
                 if (questionEmbedding && pair.embedding) {
                     // Cosine similarity between embeddings
                     similarity = cosineSimilarity(questionEmbedding, pair.embedding);
+                    method = 'semantic';
                 } else {
                     // Fallback to keyword matching
                     const questionWords = question.toLowerCase().split(/\s+/);
                     const pairWords = pair.question.split(/\s+/);
                     const commonWords = questionWords.filter(w => pairWords.includes(w)).length;
                     similarity = commonWords / Math.max(questionWords.length, pairWords.length);
+                    method = 'keyword';
                 }
+
+                const originalSimilarity = similarity;
 
                 // Category boost - ultra-clever!
                 const pairCategory = pair.category || detectCategory(pair.question);
+                let categoryBoost = false;
                 if (pairCategory === questionCategory) {
                     similarity *= 1.3; // Boost same-category matches
+                    categoryBoost = true;
                 }
 
                 // Clip to max 1.0 (cosine similarity cannot exceed 1.0)
                 similarity = Math.min(similarity, 1.0);
 
-                return { ...pair, similarity, category: pairCategory };
+                return { ...pair, similarity, category: pairCategory, originalSimilarity, categoryBoost, method };
             }));
+
+            // Log top candidates before filtering
+            const topCandidates = scored
+                .sort((a, b) => b.similarity - a.similarity)
+                .slice(0, 10);
+
+            console.log(`\n   📊 Top 10 candidates (before filtering):`);
+            topCandidates.forEach((p, i) => {
+                const answerPreview = p.answer.substring(0, 60) + (p.answer.length > 60 ? '...' : '');
+                const boostLabel = p.categoryBoost ? ` [+30% ${p.category}]` : '';
+                const methodLabel = p.method === 'semantic' ? '🧠' : '🔤';
+                console.log(`   ${i+1}. ${methodLabel} Score: ${p.similarity.toFixed(3)}${boostLabel} | Rating: ${p.rating || 'none'}`);
+                console.log(`      Q: "${p.question}"`);
+                console.log(`      A: "${answerPreview}"`);
+            });
 
             const filtered = scored
                 .filter(p => p.similarity > 0.25 && p.rating === 'up') // Lowered for better recall
                 .sort((a, b) => b.similarity - a.similarity)
                 .slice(0, limit);
+
+            console.log(`\n   ✅ Final matches (threshold: >0.25, rating: up, limit: ${limit}):`);
+            if (filtered.length > 0) {
+                filtered.forEach((p, i) => {
+                    const answerPreview = p.answer.substring(0, 80) + (p.answer.length > 80 ? '...' : '');
+                    const boostLabel = p.categoryBoost ? ` (boosted from ${p.originalSimilarity.toFixed(3)})` : '';
+                    console.log(`   ${i+1}. Score: ${p.similarity.toFixed(3)}${boostLabel}`);
+                    console.log(`      Q: "${p.question}"`);
+                    console.log(`      A: "${answerPreview}"`);
+                });
+            } else {
+                console.log('   ⚠️ No matches found (all below threshold or no thumbs-up ratings)');
+            }
 
             // Store RAG results for RLHF tracking
             lastRAGResults = filtered.map(p => ({
@@ -1682,6 +1733,7 @@ Your personality:
                 similarity: p.similarity
             }));
 
+            console.log('🔍 RAG SEARCH END\n');
             return filtered;
         }
 
