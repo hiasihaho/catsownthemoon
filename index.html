@@ -302,6 +302,74 @@
             color: #333;
             align-self: flex-start;
             border-bottom-left-radius: 4px;
+            position: relative;
+            padding-right: 60px;
+        }
+
+        .message-rating {
+            position: absolute;
+            right: 8px;
+            top: 50%;
+            transform: translateY(-50%);
+            display: flex;
+            gap: 4px;
+            opacity: 0.6;
+            transition: opacity 0.2s;
+        }
+
+        .message.assistant:hover .message-rating {
+            opacity: 1;
+        }
+
+        .rating-btn {
+            background: none;
+            border: none;
+            font-size: 16px;
+            cursor: pointer;
+            padding: 4px;
+            transition: transform 0.2s;
+            filter: grayscale(100%);
+        }
+
+        .rating-btn:hover {
+            transform: scale(1.2);
+            filter: grayscale(0%);
+        }
+
+        .rating-btn.active {
+            filter: grayscale(0%);
+        }
+
+        .learning-badge {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 10px 20px;
+            border-radius: 25px;
+            font-size: 14px;
+            font-weight: bold;
+            box-shadow: 0 4px 20px rgba(102, 126, 234, 0.4);
+            animation: slideInRight 0.3s ease-out, fadeOutDelay 3s ease-out;
+            z-index: 2000;
+            pointer-events: none;
+        }
+
+        @keyframes slideInRight {
+            from {
+                opacity: 0;
+                transform: translateX(100px);
+            }
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+
+        @keyframes fadeOutDelay {
+            0%, 90% { opacity: 1; }
+            100% { opacity: 0; }
         }
 
         .message.system {
@@ -446,6 +514,130 @@
         let isGenerating = false;
         let conversationHistory = [];
 
+        // Learning database state
+        let learningDB = null;
+        const DB_NAME = 'CatAILearning';
+        const DB_VERSION = 1;
+        const STORE_NAME = 'qa_pairs';
+
+        // Initialize IndexedDB for learning
+        async function initLearningDB() {
+            return new Promise((resolve, reject) => {
+                const request = indexedDB.open(DB_NAME, DB_VERSION);
+
+                request.onerror = () => reject(request.error);
+                request.onsuccess = () => {
+                    learningDB = request.result;
+                    console.log('📚 Learning database initialized!');
+                    resolve(learningDB);
+                };
+
+                request.onupgradeneeded = (event) => {
+                    const db = event.target.result;
+                    if (!db.objectStoreNames.contains(STORE_NAME)) {
+                        const objectStore = db.createObjectStore(STORE_NAME, { keyPath: 'id', autoIncrement: true });
+                        objectStore.createIndex('question', 'question', { unique: false });
+                        objectStore.createIndex('rating', 'rating', { unique: false });
+                        objectStore.createIndex('timestamp', 'timestamp', { unique: false });
+                    }
+                };
+            });
+        }
+
+        // Save Q&A pair to learning database
+        async function saveQAPair(question, answer, rating = null) {
+            if (!learningDB) await initLearningDB();
+
+            return new Promise((resolve, reject) => {
+                const transaction = learningDB.transaction([STORE_NAME], 'readwrite');
+                const store = transaction.objectStore(STORE_NAME);
+
+                const data = {
+                    question: question.toLowerCase(),
+                    answer: answer,
+                    rating: rating,
+                    timestamp: Date.now()
+                };
+
+                const request = store.add(data);
+                request.onsuccess = () => resolve(request.result);
+                request.onerror = () => reject(request.error);
+            });
+        }
+
+        // Find similar questions using keyword matching
+        async function findSimilarQuestions(question, limit = 3) {
+            if (!learningDB) await initLearningDB();
+
+            return new Promise((resolve, reject) => {
+                const transaction = learningDB.transaction([STORE_NAME], 'readonly');
+                const store = transaction.objectStore(STORE_NAME);
+                const request = store.getAll();
+
+                request.onsuccess = () => {
+                    const allPairs = request.result;
+
+                    // Simple keyword-based similarity
+                    const questionWords = question.toLowerCase().split(/\s+/);
+                    const scored = allPairs.map(pair => {
+                        const pairWords = pair.question.split(/\s+/);
+                        const commonWords = questionWords.filter(w => pairWords.includes(w)).length;
+                        const similarity = commonWords / Math.max(questionWords.length, pairWords.length);
+                        return { ...pair, similarity };
+                    });
+
+                    // Sort by similarity and rating, filter out low similarity
+                    const similar = scored
+                        .filter(p => p.similarity > 0.2 && p.rating === 'up')
+                        .sort((a, b) => {
+                            // Prefer higher similarity and positive ratings
+                            if (b.similarity !== a.similarity) return b.similarity - a.similarity;
+                            return (b.rating === 'up' ? 1 : 0) - (a.rating === 'up' ? 1 : 0);
+                        })
+                        .slice(0, limit);
+
+                    resolve(similar);
+                };
+
+                request.onerror = () => reject(request.error);
+            });
+        }
+
+        // Get learning statistics
+        async function getLearningStats() {
+            if (!learningDB) await initLearningDB();
+
+            return new Promise((resolve, reject) => {
+                const transaction = learningDB.transaction([STORE_NAME], 'readonly');
+                const store = transaction.objectStore(STORE_NAME);
+                const request = store.getAll();
+
+                request.onsuccess = () => {
+                    const pairs = request.result;
+                    const stats = {
+                        total: pairs.length,
+                        liked: pairs.filter(p => p.rating === 'up').length,
+                        disliked: pairs.filter(p => p.rating === 'down').length
+                    };
+                    resolve(stats);
+                };
+
+                request.onerror = () => reject(request.error);
+            });
+        }
+
+        // Show learning notification
+        function showLearningNotification(message) {
+            const badge = document.createElement('div');
+            badge.className = 'learning-badge';
+            badge.textContent = message;
+            document.body.appendChild(badge);
+
+            setTimeout(() => {
+                badge.remove();
+            }, 3000);
+        }
+
         // Check WebGPU support
         async function checkWebGPU() {
             if (!navigator.gpu) {
@@ -476,10 +668,44 @@
         }
 
         // Add message to chat
-        function addMessage(content, role) {
+        function addMessage(content, role, questionContext = null) {
             const messageDiv = document.createElement('div');
             messageDiv.className = `message ${role}`;
             messageDiv.textContent = content;
+
+            // Add rating buttons for assistant messages
+            if (role === 'assistant' && questionContext) {
+                const ratingDiv = document.createElement('div');
+                ratingDiv.className = 'message-rating';
+
+                const thumbsUp = document.createElement('button');
+                thumbsUp.className = 'rating-btn';
+                thumbsUp.innerHTML = '👍';
+                thumbsUp.title = 'Good response';
+                thumbsUp.onclick = async () => {
+                    thumbsUp.classList.add('active');
+                    thumbsDown.classList.remove('active');
+                    await saveQAPair(questionContext, content, 'up');
+                    const stats = await getLearningStats();
+                    showLearningNotification(`✨ Learned! (${stats.liked} good answers stored)`);
+                };
+
+                const thumbsDown = document.createElement('button');
+                thumbsDown.className = 'rating-btn';
+                thumbsDown.innerHTML = '👎';
+                thumbsDown.title = 'Bad response';
+                thumbsDown.onclick = async () => {
+                    thumbsDown.classList.add('active');
+                    thumbsUp.classList.remove('active');
+                    await saveQAPair(questionContext, content, 'down');
+                    showLearningNotification('📝 Noted. I\'ll try to avoid this.');
+                };
+
+                ratingDiv.appendChild(thumbsUp);
+                ratingDiv.appendChild(thumbsDown);
+                messageDiv.appendChild(ratingDiv);
+            }
+
             chatMessages.appendChild(messageDiv);
             chatMessages.scrollTop = chatMessages.scrollHeight;
         }
@@ -541,7 +767,7 @@
             }
         }
 
-        // Generate response from the model
+        // Generate response from the model with RAG
         async function generateResponse(userMessage) {
             if (isGenerating || !generator) return;
 
@@ -550,61 +776,106 @@
             chatInput.disabled = true;
 
             try {
-                // Flan-T5 is instruction-tuned, so we can ask questions directly
-                // Add context from recent conversation if available
+                // Search for similar questions in learning database
+                const similarPairs = await findSimilarQuestions(userMessage, 3);
+
+                // Build prompt with few-shot examples from learning database
                 let prompt = userMessage;
 
-                // Add recent context for better conversation flow
-                const recentHistory = conversationHistory.slice(-2); // Last exchange
-                if (recentHistory.length > 0) {
-                    let context = '';
-                    for (const msg of recentHistory) {
-                        if (msg.role === 'user') {
-                            context += `Previous question: ${msg.content}\n`;
-                        } else {
-                            context += `Previous answer: ${msg.content}\n`;
-                        }
+                if (similarPairs.length > 0) {
+                    // Add examples to help the model understand what kind of responses we want
+                    let examples = '';
+                    for (const pair of similarPairs) {
+                        examples += `Example - Q: ${pair.question} A: ${pair.answer}\n`;
                     }
-                    prompt = context + `Question: ${userMessage}`;
+                    prompt = examples + `\nNow answer this question: ${userMessage}`;
+                    console.log(`🔍 Found ${similarPairs.length} similar examples for RAG`);
                 }
 
                 // Generate response - Flan-T5 returns direct answers
                 const result = await generator(prompt, {
-                    max_new_tokens: 100,
-                    temperature: 0.7,
-                    do_sample: true,
-                    top_k: 50,
+                    max_new_tokens: 50,  // Shorter to avoid repetition
+                    temperature: 0.6,    // Lower for more focused output
+                    do_sample: false,    // Greedy decoding for consistency
+                    num_beams: 2,        // Beam search for better quality
                 });
 
                 // Extract the generated text - text2text-generation returns it directly
                 let finalResponse = result[0].generated_text.trim();
 
-                // Fallback if response is empty
-                if (!finalResponse || finalResponse.length < 2) {
-                    finalResponse = "I'm not sure how to answer that. Could you rephrase your question?";
+                // Fallback if response is empty or nonsensical
+                if (!finalResponse || finalResponse.length < 2 || finalResponse === userMessage) {
+                    finalResponse = getCatResponse(userMessage);
                 }
 
                 // Add to conversation history
                 conversationHistory.push({ role: 'user', content: userMessage });
                 conversationHistory.push({ role: 'assistant', content: finalResponse });
 
-                // Keep history manageable (last 4 messages = 2 exchanges)
+                // Keep history manageable
                 if (conversationHistory.length > 4) {
                     conversationHistory = conversationHistory.slice(-4);
                 }
 
-                // Display response
-                addMessage(finalResponse, 'assistant');
+                // Display response with rating buttons (pass question for context)
+                addMessage(finalResponse, 'assistant', userMessage);
 
             } catch (error) {
                 console.error('Error generating response:', error);
-                addMessage('Sorry, I encountered an error generating a response.', 'system');
+                // Fallback to cat response
+                const catResponse = getCatResponse(userMessage);
+                addMessage(catResponse, 'assistant', userMessage);
             } finally {
                 isGenerating = false;
                 sendBtn.disabled = false;
                 chatInput.disabled = false;
                 chatInput.focus();
             }
+        }
+
+        // Fun cat-themed responses as fallback
+        function getCatResponse(message) {
+            const lowerMsg = message.toLowerCase();
+
+            // Model/identity questions
+            if (lowerMsg.includes('model') || lowerMsg.includes('llm') || lowerMsg.includes('what are you')) {
+                return "I'm a cat-powered AI running Flan-T5-Small in your browser! Meow! 🐱";
+            }
+
+            // Cat-related
+            if (lowerMsg.includes('cat') || lowerMsg.includes('meow')) {
+                const catResponses = [
+                    "Meow! 😺",
+                    "I'm a cat person myself. Obviously. 🐱",
+                    "Cats are the superior species, obviously!",
+                    "Purr purr... what were you saying?",
+                ];
+                return catResponses[Math.floor(Math.random() * catResponses.length)];
+            }
+
+            // Moon-related
+            if (lowerMsg.includes('moon')) {
+                return "The moon belongs to cats! Haven't you heard? 🌙🐱";
+            }
+
+            // Greetings
+            if (lowerMsg.match(/^(hi|hello|hey|sup|yo)/)) {
+                const greetings = [
+                    "Hello, human! Ready to discuss important cat matters?",
+                    "Meow! What brings you to the moon today?",
+                    "Hey there! I'm just a cat on the moon, living my best life. 🌙",
+                ];
+                return greetings[Math.floor(Math.random() * greetings.length)];
+            }
+
+            // Default responses
+            const defaults = [
+                "That's an interesting question! As a cat, I have strong opinions about it. 😺",
+                "Hmm, let me think about that while I take a cat nap... 💤",
+                "I'm just a simple moon cat. My expertise is mostly in napping and moon ownership. 🌙",
+                "Fascinating! Tell me more while I knock things off this lunar surface. 🐾",
+            ];
+            return defaults[Math.floor(Math.random() * defaults.length)];
         }
 
         // Send message handler
@@ -630,11 +901,20 @@
         });
 
         // Toggle dialog visibility
-        chatBubble.addEventListener('click', function() {
+        chatBubble.addEventListener('click', async function() {
             const isActive = supportDialog.classList.contains('active');
             if (!isActive) {
                 supportDialog.classList.add('active');
                 loadRandomCat();
+
+                // Initialize learning database on first open
+                if (!learningDB) {
+                    await initLearningDB();
+                    const stats = await getLearningStats();
+                    if (stats.total > 0) {
+                        console.log(`📚 Loaded ${stats.liked} learned responses!`);
+                    }
+                }
 
                 // Initialize model on first open
                 if (!generator && !isGenerating) {
