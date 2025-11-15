@@ -834,7 +834,7 @@
             { q: "what is your name", a: "I'm Moon Cat, the AI assistant who lives on the moon! Meow! 🌙😺" },
             { q: "who are you", a: "I'm a cat-powered AI running in your browser. I own the moon and love helping humans!" },
             { q: "what can you do", a: "I can chat about anything, answer questions, and share my cat wisdom! Plus, I'm learning from our conversations!" },
-            { q: "how do you work", a: "I'm powered by Qwen3-4B-Thinking AI model running in your browser with WebGPU acceleration. I can even show you my thought process! I also learn from your feedback! ✨🧠" },
+            { q: "how do you work", a: "I'm powered by Qwen2.5-7B-Instruct AI model running in your browser with WebGPU acceleration. I also learn from your feedback! ✨" },
             { q: "do you like the moon", a: "The moon belongs to cats! It's the perfect place - quiet, peaceful, and excellent for naps! 🌙" },
             { q: "why cats on the moon", a: "Because cats are naturally drawn to high places, and the moon is the highest place of all! Plus, excellent bird watching. 😺" },
             { q: "what do you think about dogs", a: "Dogs are fine... I suppose. They're very enthusiastic. A bit too enthusiastic if you ask me! 🐕" },
@@ -1111,16 +1111,18 @@
                     addMessage('Note: Your browser doesn\'t support WebGPU. This model requires WebGPU. Please use Chrome/Edge 113+.', 'system');
                     return;
                 } else {
-                    modelStatus.textContent = 'Loading AI model (Qwen3-4B-Thinking with WebGPU)...';
-                    addMessage('✨ WebGPU detected! Loading Qwen3-4B-Thinking model with reasoning capability...', 'system');
+                    modelStatus.textContent = 'Loading AI model (Qwen2.5-7B with WebGPU)...';
+                    addMessage('✨ WebGPU detected! Loading Qwen2.5-7B-Instruct model...', 'system');
                 }
 
                 progressFill.style.width = '5%';
 
                 // Create WebLLM engine
-                // Using Qwen3-4B-Thinking - reasoning model with <think> blocks (~2-3GB)
+                // Using Qwen2.5-7B-Instruct - high-quality chat model from WebLLM's built-in list
+                // Note: Qwen3-4B-Thinking not available in WebLLM prebuilt models
+                // Using Qwen2.5-7B which is a powerful reasoning model
                 engine = await webllm.CreateMLCEngine(
-                    "vladbuinceanu/Qwen3-4B-Thinking-2507-q4f32_1-MLC",
+                    "Qwen2.5-7B-Instruct-q4f16_1-MLC",
                     {
                         initProgressCallback: (progress) => {
                             const percent = Math.round(progress.progress * 100);
@@ -1132,7 +1134,7 @@
                 );
 
                 progressFill.style.width = '100%';
-                modelStatus.textContent = '✅ AI Ready! (GPU accelerated with thinking capability 🧠)';
+                modelStatus.textContent = '✅ AI Ready! (GPU accelerated 🚀)';
 
                 // Enable chat input
                 chatInput.disabled = false;
@@ -1140,7 +1142,7 @@
                 chatInput.focus();
 
                 // Add welcome message
-                addMessage('Hello! I\'m a cat-powered AI assistant running Qwen3-4B-Thinking. I can answer questions and even show you my thought process! What would you like to know? 🐱🧠', 'assistant');
+                addMessage('Hello! I\'m a cat-powered AI assistant running Qwen2.5-7B-Instruct. I can answer questions and help with tasks! What would you like to know? 🐱', 'assistant');
 
             } catch (error) {
                 console.error('Error loading model:', error);
@@ -1227,7 +1229,7 @@
 
             // Model/identity questions
             if (lowerMsg.includes('model') || lowerMsg.includes('llm') || lowerMsg.includes('what are you')) {
-                return "I'm a cat-powered AI running Qwen3-4B-Thinking in your browser! I can even show you how I think! Meow! 🐱🧠";
+                return "I'm a cat-powered AI running Qwen2.5-7B-Instruct in your browser! Meow! 🐱";
             }
 
             // Cat-related
