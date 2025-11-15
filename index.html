@@ -850,6 +850,11 @@
                 embeddingsReady = true;
                 console.log('✅ Semantic embeddings ready!');
                 showLearningNotification('🧠 Semantic search enabled!');
+
+                // Backfill embeddings if DB is already loaded
+                if (learningDB) {
+                    backfillEmbeddings();
+                }
             } catch (error) {
                 console.error('⚠️ Failed to load embeddings:', error);
                 console.log('Falling back to keyword search');
@@ -895,6 +900,45 @@
             if (normA === 0 || normB === 0) return 0;
 
             return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
+        }
+
+        // Backfill embeddings for existing data
+        async function backfillEmbeddings() {
+            if (!embeddingsReady || !learningDB) return;
+
+            try {
+                const transaction = learningDB.transaction([STORE_NAME], 'readwrite');
+                const store = transaction.objectStore(STORE_NAME);
+
+                const allPairs = await new Promise((resolve) => {
+                    store.getAll().onsuccess = (e) => resolve(e.target.result);
+                });
+
+                let backfilled = 0;
+                for (const pair of allPairs) {
+                    // Only generate if missing
+                    if (!pair.embedding) {
+                        const embedding = await generateEmbedding(pair.question);
+                        if (embedding) {
+                            pair.embedding = embedding;
+
+                            const updateRequest = store.put(pair);
+                            await new Promise((resolve) => {
+                                updateRequest.onsuccess = () => resolve();
+                            });
+
+                            backfilled++;
+                        }
+                    }
+                }
+
+                if (backfilled > 0) {
+                    console.log(`✅ Backfilled ${backfilled} embeddings for existing data`);
+                    showLearningNotification(`🧠 Generated embeddings for ${backfilled} existing examples!`);
+                }
+            } catch (error) {
+                console.error('Error backfilling embeddings:', error);
+            }
         }
 
         // Start loading embeddings in background
@@ -1455,6 +1499,9 @@
                     if (stats.total > 0) {
                         console.log(`📚 Loaded ${stats.liked} learned responses!`);
                     }
+
+                    // Backfill embeddings for existing data (if embeddings are ready)
+                    backfillEmbeddings();
                 }
 
                 // Initialize model on first open
