@@ -428,6 +428,205 @@
             color: #667eea;
             font-size: 14px;
         }
+
+        /* Rocket Training UI Styles */
+        .training-rocket {
+            position: fixed;
+            bottom: 120px;
+            left: 30px;
+            width: 120px;
+            height: 120px;
+            cursor: pointer;
+            z-index: 1000;
+            transition: transform 0.3s ease;
+            filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.2));
+        }
+
+        .training-rocket:hover {
+            transform: scale(1.1) rotate(-5deg);
+        }
+
+        .rocket-container {
+            position: relative;
+            width: 100%;
+            height: 100%;
+        }
+
+        .fuel-gauge {
+            position: absolute;
+            bottom: -30px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 80px;
+            height: 8px;
+            background: rgba(255, 255, 255, 0.3);
+            border-radius: 4px;
+            overflow: hidden;
+            border: 1px solid rgba(255, 255, 255, 0.5);
+        }
+
+        .fuel-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #4ade80 0%, #22c55e 100%);
+            width: 0%;
+            transition: width 0.5s ease;
+            box-shadow: 0 0 10px rgba(74, 222, 128, 0.5);
+        }
+
+        .knowledge-badge {
+            position: absolute;
+            top: -10px;
+            right: -10px;
+            background: linear-gradient(135deg, #f59e0b 0%, #dc2626 100%);
+            color: white;
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            font-weight: bold;
+            box-shadow: 0 2px 10px rgba(245, 158, 11, 0.5);
+            animation: pulse 2s ease-in-out infinite;
+        }
+
+        /* Training Panel */
+        .training-panel {
+            display: none;
+            position: fixed;
+            bottom: 110px;
+            left: 30px;
+            width: 350px;
+            max-width: calc(100vw - 60px);
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+            z-index: 999;
+            overflow: hidden;
+            animation: slideUp 0.3s ease-out;
+        }
+
+        .training-panel.active {
+            display: block;
+        }
+
+        .panel-header {
+            background: linear-gradient(135deg, #f59e0b 0%, #dc2626 100%);
+            color: white;
+            padding: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .panel-header h3 {
+            margin: 0;
+            font-size: 1.2rem;
+        }
+
+        .panel-content {
+            padding: 20px;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .stat-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 10px 0;
+            border-bottom: 1px solid #e0e0e0;
+        }
+
+        .stat-label {
+            color: #666;
+            font-size: 14px;
+        }
+
+        .stat-value {
+            color: #333;
+            font-weight: bold;
+            font-size: 14px;
+        }
+
+        .category-breakdown {
+            margin-top: 15px;
+        }
+
+        .category-item {
+            margin: 8px 0;
+        }
+
+        .category-name {
+            font-size: 12px;
+            color: #666;
+            margin-bottom: 4px;
+        }
+
+        .category-bar {
+            height: 6px;
+            background: #e0e0e0;
+            border-radius: 3px;
+            overflow: hidden;
+        }
+
+        .category-bar-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+            transition: width 0.3s ease;
+        }
+
+        .action-buttons {
+            display: flex;
+            gap: 10px;
+            margin-top: 15px;
+        }
+
+        .action-btn {
+            flex: 1;
+            padding: 10px;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: bold;
+            transition: transform 0.2s ease;
+        }
+
+        .action-btn:hover {
+            transform: translateY(-2px);
+        }
+
+        .export-btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .clear-btn {
+            background: #fee;
+            color: #c00;
+        }
+
+        .drop-zone {
+            margin-top: 15px;
+            padding: 30px;
+            border: 2px dashed #ccc;
+            border-radius: 10px;
+            text-align: center;
+            color: #666;
+            font-size: 13px;
+            transition: all 0.3s ease;
+        }
+
+        .drop-zone.drag-over {
+            border-color: #667eea;
+            background: #f0f4ff;
+            color: #667eea;
+        }
+
+        .drop-zone input {
+            display: none;
+        }
     </style>
 </head>
 <body>
@@ -454,6 +653,75 @@
     <!-- Chat Bubble -->
     <div class="chat-bubble" id="chatBubble">
         💬
+    </div>
+
+    <!-- Training Rocket -->
+    <div class="training-rocket" id="trainingRocket">
+        <div class="rocket-container">
+            <div class="knowledge-badge" id="knowledgeBadge">0</div>
+            <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+                <!-- Rocket body -->
+                <ellipse cx="50" cy="60" rx="15" ry="25" fill="#e74c3c"/>
+                <rect x="35" y="50" width="30" height="30" fill="#c0392b"/>
+                <!-- Window -->
+                <circle cx="50" cy="55" r="8" fill="#3498db" opacity="0.7"/>
+                <!-- Cat astronaut inside -->
+                <text x="50" y="60" font-size="12" text-anchor="middle">😺</text>
+                <!-- Rocket fins -->
+                <polygon points="35,75 25,90 35,85" fill="#95a5a6"/>
+                <polygon points="65,75 75,90 65,85" fill="#95a5a6"/>
+                <!-- Rocket nose -->
+                <polygon points="50,30 35,50 65,50" fill="#e67e22"/>
+                <!-- Flames -->
+                <g id="flames">
+                    <ellipse cx="50" cy="85" rx="8" ry="6" fill="#f39c12" opacity="0.8">
+                        <animate attributeName="ry" values="6;10;6" dur="0.3s" repeatCount="indefinite"/>
+                    </ellipse>
+                    <ellipse cx="50" cy="90" rx="6" ry="8" fill="#e74c3c" opacity="0.6">
+                        <animate attributeName="ry" values="8;12;8" dur="0.4s" repeatCount="indefinite"/>
+                    </ellipse>
+                </g>
+            </svg>
+            <div class="fuel-gauge">
+                <div class="fuel-fill" id="fuelFill"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Training Panel -->
+    <div class="training-panel" id="trainingPanel">
+        <div class="panel-header">
+            <h3>🚀 Learning Analytics</h3>
+            <button class="close-btn" id="closePanelBtn">×</button>
+        </div>
+        <div class="panel-content">
+            <div class="stat-item">
+                <span class="stat-label">Total Knowledge</span>
+                <span class="stat-value" id="statTotal">0</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">Good Responses</span>
+                <span class="stat-value" id="statLiked">0</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">Learning Progress</span>
+                <span class="stat-value" id="statProgress">0%</span>
+            </div>
+
+            <div class="category-breakdown" id="categoryBreakdown">
+                <h4 style="font-size: 14px; margin-bottom: 10px; color: #333;">Knowledge Categories</h4>
+            </div>
+
+            <div class="action-buttons">
+                <button class="action-btn export-btn" id="exportBtn">📥 Export</button>
+                <button class="action-btn clear-btn" id="clearBtn">🗑️ Clear</button>
+            </div>
+
+            <div class="drop-zone" id="dropZone">
+                📂 Drop training file here or click to upload
+                <input type="file" id="fileInput" accept=".json,.jsonl">
+            </div>
+        </div>
     </div>
 
     <!-- Support Dialog -->
@@ -814,8 +1082,8 @@
             chatInput.disabled = true;
 
             try {
-                // Search for similar questions in learning database
-                const similarPairs = await findSimilarQuestions(userMessage, 3);
+                // Search for similar questions using ultra-clever enhanced matching
+                const similarPairs = await findSimilarQuestionsEnhanced(userMessage, 3);
 
                 // Build prompt with few-shot examples from learning database
                 let prompt = userMessage;
@@ -974,6 +1242,238 @@
                 supportDialog.classList.remove('active');
             }
         });
+
+        // ============================================
+        // ULTRA-CLEVER LEARNING FEATURES
+        // ============================================
+
+        // DOM elements for training rocket
+        const trainingRocket = document.getElementById('trainingRocket');
+        const trainingPanel = document.getElementById('trainingPanel');
+        const closePanelBtn = document.getElementById('closePanelBtn');
+        const knowledgeBadge = document.getElementById('knowledgeBadge');
+        const fuelFill = document.getElementById('fuelFill');
+        const exportBtn = document.getElementById('exportBtn');
+        const clearBtn = document.getElementById('clearBtn');
+        const dropZone = document.getElementById('dropZone');
+        const fileInput = document.getElementById('fileInput');
+
+        // Category detection - Ultra-clever feature!
+        function detectCategory(question) {
+            const q = question.toLowerCase();
+
+            if (q.match(/who|what.*you|your name|introduce/)) return 'identity';
+            if (q.match(/cat|kitten|feline|meow|purr/)) return 'cats';
+            if (q.match(/moon|lunar|space|astronaut|rocket/)) return 'moon';
+            if (q.match(/how.*work|explain|what.*do|capability/)) return 'technical';
+            if (q.match(/help|assist|can you|support/)) return 'support';
+            if (q.match(/hi|hello|hey|greet/)) return 'greeting';
+            if (q.match(/thank|thanks|appreciate/)) return 'gratitude';
+            return 'general';
+        }
+
+        // Enhanced similarity with category weighting
+        async function findSimilarQuestionsEnhanced(question, limit = 3) {
+            const pairs = await (async () => {
+                const transaction = learningDB.transaction([STORE_NAME], 'readonly');
+                const store = transaction.objectStore(STORE_NAME);
+                return new Promise((resolve) => {
+                    store.getAll().onsuccess = (e) => resolve(e.target.result);
+                });
+            })();
+
+            const questionCategory = detectCategory(question);
+            const questionWords = question.toLowerCase().split(/\s+/);
+
+            const scored = pairs.map(pair => {
+                const pairWords = pair.question.split(/\s+/);
+                const commonWords = questionWords.filter(w => pairWords.includes(w)).length;
+                let similarity = commonWords / Math.max(questionWords.length, pairWords.length);
+
+                // Category boost - ultra-clever!
+                const pairCategory = detectCategory(pair.question);
+                if (pairCategory === questionCategory) {
+                    similarity *= 1.5; // Boost same-category matches
+                }
+
+                return { ...pair, similarity, category: pairCategory };
+            });
+
+            return scored
+                .filter(p => p.similarity > 0.2 && p.rating === 'up')
+                .sort((a, b) => b.similarity - a.similarity)
+                .slice(0, limit);
+        }
+
+        // Update learning analytics display
+        async function updateAnalytics() {
+            const stats = await getLearningStats();
+            const allPairs = await (async () => {
+                const transaction = learningDB.transaction([STORE_NAME], 'readonly');
+                const store = transaction.objectStore(STORE_NAME);
+                return new Promise((resolve) => {
+                    store.getAll().onsuccess = (e) => resolve(e.target.result);
+                });
+            })();
+
+            // Update badge and fuel
+            knowledgeBadge.textContent = stats.liked;
+            const progress = Math.min((stats.liked / 50) * 100, 100); // 50 is "full tank"
+            fuelFill.style.width = progress + '%';
+
+            // Update stats
+            document.getElementById('statTotal').textContent = stats.total;
+            document.getElementById('statLiked').textContent = stats.liked;
+            document.getElementById('statProgress').textContent = Math.round(progress) + '%';
+
+            // Category breakdown
+            const categories = {};
+            allPairs.filter(p => p.rating === 'up').forEach(pair => {
+                const cat = detectCategory(pair.question);
+                categories[cat] = (categories[cat] || 0) + 1;
+            });
+
+            const categoryBreakdown = document.getElementById('categoryBreakdown');
+            const catHTML = '<h4 style="font-size: 14px; margin-bottom: 10px; color: #333;">Knowledge Categories</h4>';
+            const catItems = Object.entries(categories).map(([cat, count]) => {
+                const percent = (count / stats.liked) * 100;
+                return `
+                    <div class="category-item">
+                        <div class="category-name">${cat.charAt(0).toUpperCase() + cat.slice(1)} (${count})</div>
+                        <div class="category-bar">
+                            <div class="category-bar-fill" style="width: ${percent}%"></div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            categoryBreakdown.innerHTML = catHTML + catItems;
+        }
+
+        // Export training data
+        exportBtn.addEventListener('click', async function() {
+            const allPairs = await (async () => {
+                const transaction = learningDB.transaction([STORE_NAME], 'readonly');
+                const store = transaction.objectStore(STORE_NAME);
+                return new Promise((resolve) => {
+                    store.getAll().onsuccess = (e) => resolve(e.target.result);
+                });
+            })();
+
+            const exportData = {
+                version: 1,
+                exported: new Date().toISOString(),
+                pairs: allPairs.map(p => ({
+                    question: p.question,
+                    answer: p.answer,
+                    rating: p.rating,
+                    category: detectCategory(p.question),
+                    timestamp: p.timestamp
+                }))
+            };
+
+            const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `cat-ai-training-${Date.now()}.json`;
+            a.click();
+            URL.revokeObjectURL(url);
+
+            showLearningNotification(`📥 Exported ${allPairs.length} training pairs!`);
+        });
+
+        // Clear database
+        clearBtn.addEventListener('click', async function() {
+            if (confirm('Are you sure you want to clear all learning data? This cannot be undone!')) {
+                const transaction = learningDB.transaction([STORE_NAME], 'readwrite');
+                const store = transaction.objectStore(STORE_NAME);
+                await store.clear();
+
+                await updateAnalytics();
+                showLearningNotification('🗑️ All learning data cleared!');
+            }
+        });
+
+        // File upload and import
+        dropZone.addEventListener('click', () => fileInput.click());
+
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropZone.classList.add('drag-over');
+        });
+
+        dropZone.addEventListener('dragleave', () => {
+            dropZone.classList.remove('drag-over');
+        });
+
+        dropZone.addEventListener('drop', async (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('drag-over');
+            const file = e.dataTransfer.files[0];
+            if (file) await importTrainingData(file);
+        });
+
+        fileInput.addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (file) await importTrainingData(file);
+        });
+
+        async function importTrainingData(file) {
+            try {
+                const text = await file.text();
+                const data = JSON.parse(text);
+
+                if (!data.pairs || !Array.isArray(data.pairs)) {
+                    throw new Error('Invalid training data format');
+                }
+
+                let imported = 0;
+                for (const pair of data.pairs) {
+                    if (pair.question && pair.answer) {
+                        await saveQAPair(pair.question, pair.answer, pair.rating || 'up');
+                        imported++;
+                    }
+                }
+
+                await updateAnalytics();
+                showLearningNotification(`📂 Imported ${imported} training pairs!`);
+            } catch (error) {
+                console.error('Import error:', error);
+                showLearningNotification('❌ Failed to import training data!');
+            }
+        }
+
+        // Rocket click handler
+        trainingRocket.addEventListener('click', async function() {
+            const isActive = trainingPanel.classList.contains('active');
+            if (!isActive) {
+                trainingPanel.classList.add('active');
+                if (!learningDB) await initLearningDB();
+                await updateAnalytics();
+            } else {
+                trainingPanel.classList.remove('active');
+            }
+        });
+
+        // Close panel
+        closePanelBtn.addEventListener('click', function() {
+            trainingPanel.classList.remove('active');
+        });
+
+        // Update analytics when learning happens
+        const originalSaveQAPair = saveQAPair;
+        window.saveQAPair = async function(...args) {
+            const result = await originalSaveQAPair(...args);
+            await updateAnalytics();
+            return result;
+        };
+
+        // Initialize rocket display
+        (async function() {
+            if (!learningDB) await initLearningDB();
+            await updateAnalytics();
+        })();
     </script>
 </body>
 </html>
