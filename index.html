@@ -754,8 +754,27 @@
                 <h4 style="font-size: 14px; margin-bottom: 10px; color: #333;">Knowledge Categories</h4>
             </div>
 
+            <div style="margin-top: 20px; padding: 15px; background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%); border-radius: 10px; border-left: 4px solid #0284c7;">
+                <h4 style="font-size: 14px; margin-bottom: 10px; color: #0c4a6e;">🎓 Training Export</h4>
+                <div class="stat-item" style="border: none; padding: 5px 0;">
+                    <span class="stat-label">Training Examples:</span>
+                    <span class="stat-value" id="trainingExamples">0</span>
+                </div>
+                <div class="stat-item" style="border: none; padding: 5px 0;">
+                    <span class="stat-label">Preference Pairs (DPO):</span>
+                    <span class="stat-value" id="preferencePairs">0</span>
+                </div>
+                <div class="stat-item" style="border: none; padding: 5px 0;">
+                    <span class="stat-label">Quality Score:</span>
+                    <span class="stat-value" id="qualityScore">0%</span>
+                </div>
+                <p style="font-size: 11px; color: #64748b; margin-top: 10px; line-height: 1.4;">
+                    Export creates a ready-to-train package with Alpaca/DPO formats, training script, and config. Train on your own GPU or Google Colab!
+                </p>
+            </div>
+
             <div class="action-buttons">
-                <button class="action-btn export-btn" id="exportBtn">📥 Export</button>
+                <button class="action-btn export-btn" id="exportBtn">📦 Export Training Package</button>
                 <button class="action-btn clear-btn" id="clearBtn">🗑️ Clear</button>
             </div>
 
@@ -802,8 +821,84 @@
             starsContainer.appendChild(star);
         }
 
-        // Import WebLLM
+        // Import WebLLM and Transformers.js
         const webllm = await import('https://esm.run/@mlc-ai/web-llm');
+
+        // Import JSZip for training package export
+        const JSZip = (await import('https://cdn.jsdelivr.net/npm/jszip@3.10.1/+esm')).default;
+
+        // Import js-yaml for config export
+        const jsyaml = await import('https://cdn.jsdelivr.net/npm/js-yaml@4.1.0/+esm');
+
+        // Import Transformers.js for semantic embeddings
+        let transformers = null;
+        let embeddingPipeline = null;
+        let embeddingsReady = false;
+
+        async function initEmbeddings() {
+            try {
+                console.log('🧠 Loading Transformers.js...');
+                transformers = await import('https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2');
+
+                // Use all-MiniLM-L6-v2 - 384 dimensions, 80MB, fast
+                console.log('📥 Loading embedding model (all-MiniLM-L6-v2)...');
+                embeddingPipeline = await transformers.pipeline(
+                    'feature-extraction',
+                    'Xenova/all-MiniLM-L6-v2'
+                );
+
+                embeddingsReady = true;
+                console.log('✅ Semantic embeddings ready!');
+                showLearningNotification('🧠 Semantic search enabled!');
+            } catch (error) {
+                console.error('⚠️ Failed to load embeddings:', error);
+                console.log('Falling back to keyword search');
+            }
+        }
+
+        // Generate embedding for text
+        async function generateEmbedding(text) {
+            if (!embeddingsReady || !embeddingPipeline) {
+                return null; // Fallback to keyword search
+            }
+
+            try {
+                const output = await embeddingPipeline(text, {
+                    pooling: 'mean',
+                    normalize: true
+                });
+
+                // Convert to Float32Array
+                return new Float32Array(output.data);
+            } catch (error) {
+                console.error('Error generating embedding:', error);
+                return null;
+            }
+        }
+
+        // Cosine similarity between two vectors
+        function cosineSimilarity(vecA, vecB) {
+            if (!vecA || !vecB || vecA.length !== vecB.length) {
+                return 0;
+            }
+
+            let dotProduct = 0;
+            let normA = 0;
+            let normB = 0;
+
+            for (let i = 0; i < vecA.length; i++) {
+                dotProduct += vecA[i] * vecB[i];
+                normA += vecA[i] * vecA[i];
+                normB += vecB[i] * vecB[i];
+            }
+
+            if (normA === 0 || normB === 0) return 0;
+
+            return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
+        }
+
+        // Start loading embeddings in background
+        initEmbeddings();
 
         // DOM elements
         const chatBubble = document.getElementById('chatBubble');
@@ -824,8 +919,12 @@
         // Learning database state
         let learningDB = null;
         const DB_NAME = 'CatAILearning';
-        const DB_VERSION = 1;
+        const DB_VERSION = 2; // Upgraded for RLHF/DPO support + semantic embeddings
         const STORE_NAME = 'qa_pairs';
+
+        // Current system prompt for RLHF tracking
+        let currentSystemPrompt = "You are a helpful, friendly cat AI assistant who lives on the moon. Keep responses concise and fun.";
+        let lastRAGResults = [];
 
         // Starter knowledge - pre-seeded Q&A pairs for better initial experience
         const STARTER_KNOWLEDGE = [
@@ -861,11 +960,37 @@
 
                 request.onupgradeneeded = (event) => {
                     const db = event.target.result;
+                    const oldVersion = event.oldVersion;
+                    const newVersion = event.newVersion;
+
+                    console.log(`📊 Upgrading database from v${oldVersion} to v${newVersion}`);
+
+                    let objectStore;
+
+                    // Create store if it doesn't exist (v0 -> v1+)
                     if (!db.objectStoreNames.contains(STORE_NAME)) {
-                        const objectStore = db.createObjectStore(STORE_NAME, { keyPath: 'id', autoIncrement: true });
+                        objectStore = db.createObjectStore(STORE_NAME, { keyPath: 'id', autoIncrement: true });
                         objectStore.createIndex('question', 'question', { unique: false });
                         objectStore.createIndex('rating', 'rating', { unique: false });
                         objectStore.createIndex('timestamp', 'timestamp', { unique: false });
+                    }
+
+                    // Upgrade v1 -> v2: Add RLHF fields
+                    if (oldVersion < 2) {
+                        console.log('🔧 Adding RLHF/DPO fields...');
+
+                        // Get object store from transaction
+                        objectStore = event.target.transaction.objectStore(STORE_NAME);
+
+                        // Add new indices
+                        if (!objectStore.indexNames.contains('category')) {
+                            objectStore.createIndex('category', 'category', { unique: false });
+                        }
+                        if (!objectStore.indexNames.contains('model_version')) {
+                            objectStore.createIndex('model_version', 'model_version', { unique: false });
+                        }
+
+                        console.log('✅ Database schema upgraded to v2!');
                     }
                 };
             });
@@ -889,9 +1014,19 @@
             }
         }
 
-        // Save Q&A pair to learning database
-        async function saveQAPair(question, answer, rating = null) {
+        // Save Q&A pair to learning database with RLHF/DPO data
+        async function saveQAPair(question, answer, rating = null, metadata = {}) {
             if (!learningDB) await initLearningDB();
+
+            // Generate embedding for semantic search
+            const embedding = await generateEmbedding(question);
+
+            // Capture DOM state
+            const domState = {
+                background_color: getComputedStyle(document.body).background,
+                moon_visible: document.querySelector('.moon') ? true : false,
+                stars_count: document.querySelectorAll('.star').length
+            };
 
             return new Promise((resolve, reject) => {
                 const transaction = learningDB.transaction([STORE_NAME], 'readwrite');
@@ -901,7 +1036,25 @@
                     question: question.toLowerCase(),
                     answer: answer,
                     rating: rating,
-                    timestamp: Date.now()
+                    timestamp: Date.now(),
+
+                    // RLHF/DPO fields
+                    conversation_context: metadata.conversation_context || [...conversationHistory],
+                    system_prompt: metadata.system_prompt || currentSystemPrompt,
+                    rag_context: metadata.rag_context || [...lastRAGResults],
+                    dom_state: metadata.dom_state || domState,
+                    model_version: metadata.model_version || "TinyLlama-1.1B-Chat-v0.4-q4f16_1-MLC",
+                    inference_params: metadata.inference_params || {
+                        temperature: 0.7,
+                        top_p: 0.9,
+                        max_tokens: 150
+                    },
+                    alternative_answers: metadata.alternative_answers || [],
+                    category: detectCategory(question),
+                    response_time_ms: metadata.response_time || 0,
+
+                    // Semantic embedding (384-dim vector)
+                    embedding: embedding
                 };
 
                 const request = store.add(data);
@@ -1354,7 +1507,7 @@
             return 'general';
         }
 
-        // Enhanced similarity with category weighting
+        // Enhanced similarity with SEMANTIC VECTOR SEARCH + category weighting
         async function findSimilarQuestionsEnhanced(question, limit = 3) {
             const pairs = await (async () => {
                 const transaction = learningDB.transaction([STORE_NAME], 'readonly');
@@ -1365,26 +1518,47 @@
             })();
 
             const questionCategory = detectCategory(question);
-            const questionWords = question.toLowerCase().split(/\s+/);
 
-            const scored = pairs.map(pair => {
-                const pairWords = pair.question.split(/\s+/);
-                const commonWords = questionWords.filter(w => pairWords.includes(w)).length;
-                let similarity = commonWords / Math.max(questionWords.length, pairWords.length);
+            // Generate embedding for the question
+            const questionEmbedding = await generateEmbedding(question);
+
+            const scored = await Promise.all(pairs.map(async pair => {
+                let similarity = 0;
+
+                // Try semantic similarity first (if embeddings available)
+                if (questionEmbedding && pair.embedding) {
+                    // Cosine similarity between embeddings
+                    similarity = cosineSimilarity(questionEmbedding, pair.embedding);
+                } else {
+                    // Fallback to keyword matching
+                    const questionWords = question.toLowerCase().split(/\s+/);
+                    const pairWords = pair.question.split(/\s+/);
+                    const commonWords = questionWords.filter(w => pairWords.includes(w)).length;
+                    similarity = commonWords / Math.max(questionWords.length, pairWords.length);
+                }
 
                 // Category boost - ultra-clever!
-                const pairCategory = detectCategory(pair.question);
+                const pairCategory = pair.category || detectCategory(pair.question);
                 if (pairCategory === questionCategory) {
-                    similarity *= 1.5; // Boost same-category matches
+                    similarity *= 1.3; // Boost same-category matches
                 }
 
                 return { ...pair, similarity, category: pairCategory };
-            });
+            }));
 
-            return scored
-                .filter(p => p.similarity > 0.2 && p.rating === 'up')
+            const filtered = scored
+                .filter(p => p.similarity > 0.3 && p.rating === 'up')
                 .sort((a, b) => b.similarity - a.similarity)
                 .slice(0, limit);
+
+            // Store RAG results for RLHF tracking
+            lastRAGResults = filtered.map(p => ({
+                question: p.question,
+                answer: p.answer,
+                similarity: p.similarity
+            }));
+
+            return filtered;
         }
 
         // Update learning analytics display
@@ -1430,39 +1604,395 @@
             }).join('');
 
             categoryBreakdown.innerHTML = catHTML + catItems;
+
+            // Update training export stats
+            const alpacaData = toAlpacaFormat(allPairs);
+            const dpoData = toDPOFormat(allPairs);
+            const qualityPercent = stats.total > 0 ? Math.round((alpacaData.length / stats.total) * 100) : 0;
+
+            document.getElementById('trainingExamples').textContent = alpacaData.length;
+            document.getElementById('preferencePairs').textContent = dpoData.length;
+            document.getElementById('qualityScore').textContent = qualityPercent + '%';
         }
 
-        // Export training data
-        exportBtn.addEventListener('click', async function() {
-            const allPairs = await (async () => {
-                const transaction = learningDB.transaction([STORE_NAME], 'readonly');
-                const store = transaction.objectStore(STORE_NAME);
-                return new Promise((resolve) => {
-                    store.getAll().onsuccess = (e) => resolve(e.target.result);
-                });
-            })();
+        // ============================================
+        // TRAINING EXPORT SYSTEM (RLHF/DPO)
+        // ============================================
 
-            const exportData = {
-                version: 1,
-                exported: new Date().toISOString(),
-                pairs: allPairs.map(p => ({
-                    question: p.question,
-                    answer: p.answer,
+        // Quality filtering for training data
+        function filterQualityExamples(qaPairs) {
+            return qaPairs.filter(pair => {
+                // Minimum requirements
+                if (pair.rating !== 'up') return false;
+                if (!pair.answer || pair.answer.length < 10) return false;
+                if (!pair.question || pair.question.length < 3) return false;
+
+                return true;
+            });
+        }
+
+        // Convert to Alpaca format (Supervised Fine-Tuning)
+        function toAlpacaFormat(qaPairs) {
+            const qualityPairs = filterQualityExamples(qaPairs);
+
+            return qualityPairs.map(p => ({
+                instruction: p.system_prompt || currentSystemPrompt,
+                input: p.question,
+                output: p.answer,
+                metadata: {
                     rating: p.rating,
-                    category: detectCategory(p.question),
-                    timestamp: p.timestamp
-                }))
+                    timestamp: p.timestamp,
+                    category: p.category || detectCategory(p.question),
+                    rag_used: (p.rag_context && p.rag_context.length > 0),
+                    conversation_turns: (p.conversation_context && p.conversation_context.length) || 0,
+                    source: "user_feedback"
+                }
+            }));
+        }
+
+        // Convert to DPO format (Direct Preference Optimization)
+        function toDPOFormat(qaPairs) {
+            const pairs = [];
+
+            // Group by question to find preference pairs
+            const grouped = {};
+            qaPairs.forEach(pair => {
+                const q = pair.question;
+                if (!grouped[q]) grouped[q] = [];
+                grouped[q].push(pair);
+            });
+
+            // Create preference pairs
+            for (const [question, answers] of Object.entries(grouped)) {
+                const chosen = answers.find(a => a.rating === 'up');
+                const rejected = answers.find(a => a.rating === 'down');
+
+                if (chosen && rejected) {
+                    pairs.push({
+                        prompt: `${chosen.system_prompt || currentSystemPrompt}\n\nUser: ${question}`,
+                        chosen: chosen.answer,
+                        rejected: rejected.answer,
+                        metadata: {
+                            chosen_timestamp: chosen.timestamp,
+                            rejected_timestamp: rejected.timestamp,
+                            category: chosen.category || detectCategory(question),
+                            preference_strength: 1.0
+                        }
+                    });
+                }
+            }
+
+            return pairs;
+        }
+
+        // Generate training configuration
+        function generateTrainingConfig(stats) {
+            return {
+                base_model: "TinyLlama/TinyLlama-1.1B-Chat-v0.4",
+                task_type: "causal_lm",
+
+                // LoRA Configuration
+                peft_type: "LORA",
+                lora_r: 16,
+                lora_alpha: 32,
+                lora_dropout: 0.05,
+                lora_target_modules: ["q_proj", "v_proj", "k_proj", "o_proj"],
+
+                // Training Hyperparameters
+                learning_rate: 0.0002,
+                lr_scheduler_type: "cosine",
+                warmup_ratio: 0.03,
+                num_train_epochs: 3,
+                per_device_train_batch_size: 4,
+                gradient_accumulation_steps: 4,
+                max_seq_length: 512,
+
+                // DPO-specific
+                dpo_beta: 0.1,
+
+                // Dataset Info
+                dataset_stats: {
+                    total_examples: stats.total,
+                    positive_examples: stats.liked,
+                    preference_pairs: stats.preference_pairs || 0,
+                    date_collected: new Date().toISOString()
+                },
+
+                // Output
+                output_dir: "./finetuned_model",
+                save_strategy: "epoch",
+                logging_steps: 10
             };
+        }
 
-            const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `cat-ai-training-${Date.now()}.json`;
-            a.click();
-            URL.revokeObjectURL(url);
+        // Generate training script
+        function generateTrainingScript() {
+            return `#!/usr/bin/env python3
+"""
+Auto-generated training script by Cats Own The Moon
+Train TinyLlama with your custom feedback data
+"""
 
-            showLearningNotification(`📥 Exported ${allPairs.length} training pairs!`);
+import argparse
+import json
+import yaml
+from pathlib import Path
+
+def train_with_unsloth(config_path, data_file):
+    """Train with Unsloth (fastest, needs CUDA)"""
+    print("🚀 Training with Unsloth...")
+
+    try:
+        from unsloth import FastLanguageModel
+        from trl import SFTTrainer
+        from transformers import TrainingArguments
+        import torch
+    except ImportError:
+        print("❌ Please install: pip install unsloth trl transformers")
+        return
+
+    # Load config
+    with open(config_path) as f:
+        config = yaml.safe_load(f)
+
+    # Load model
+    model, tokenizer = FastLanguageModel.from_pretrained(
+        model_name=config['base_model'],
+        max_seq_length=config['max_seq_length'],
+        load_in_4bit=True
+    )
+
+    # Add LoRA adapters
+    model = FastLanguageModel.get_peft_model(
+        model,
+        r=config['lora_r'],
+        lora_alpha=config['lora_alpha'],
+        lora_dropout=config['lora_dropout'],
+        target_modules=config['lora_target_modules']
+    )
+
+    # Load dataset
+    with open(data_file) as f:
+        data = [json.loads(line) for line in f if line.strip()]
+
+    # Format for training
+    def format_prompt(example):
+        return f"""<|system|>
+{example['instruction']}
+<|user|>
+{example['input']}
+<|assistant|>
+{example['output']}"""
+
+    # Train
+    trainer = SFTTrainer(
+        model=model,
+        tokenizer=tokenizer,
+        train_dataset=data,
+        dataset_text_field="text",
+        max_seq_length=config['max_seq_length'],
+        formatting_func=format_prompt,
+        args=TrainingArguments(
+            output_dir=config['output_dir'],
+            per_device_train_batch_size=config['per_device_train_batch_size'],
+            gradient_accumulation_steps=config['gradient_accumulation_steps'],
+            warmup_ratio=config['warmup_ratio'],
+            num_train_epochs=config['num_train_epochs'],
+            learning_rate=config['learning_rate'],
+            logging_steps=config['logging_steps'],
+            save_strategy=config['save_strategy'],
+            fp16=torch.cuda.is_available()
+        )
+    )
+
+    trainer.train()
+
+    # Save
+    model.save_pretrained(config['output_dir'])
+    tokenizer.save_pretrained(config['output_dir'])
+
+    print(f"✅ Training complete! Model saved to {config['output_dir']}")
+
+
+def train_with_mlx(config_path, data_file):
+    """Train with MLX (Apple Silicon)"""
+    print("🍎 Training with MLX (Apple Silicon)...")
+    print("⚠️  MLX training code not yet implemented")
+    print("See: https://github.com/ml-explore/mlx-examples")
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--method", choices=["unsloth", "mlx"], default="unsloth")
+    parser.add_argument("--config", default="training_config.yaml")
+    parser.add_argument("--data", default="alpaca_format.jsonl")
+    args = parser.parse_args()
+
+    if args.method == "unsloth":
+        train_with_unsloth(args.config, args.data)
+    elif args.method == "mlx":
+        train_with_mlx(args.config, args.data)
+
+
+if __name__ == "__main__":
+    main()
+`;
+        }
+
+        // Generate README
+        function generateREADME(stats) {
+            return `# TinyLlama Training Package
+
+Generated by **Cats Own The Moon** on ${new Date().toISOString()}
+
+## 📊 Dataset Statistics
+
+- **Total Examples**: ${stats.total}
+- **Quality Examples (👍)**: ${stats.liked}
+- **Preference Pairs (DPO)**: ${stats.preference_pairs || 0}
+- **Categories**: ${Object.keys(stats.by_category || {}).join(', ')}
+
+## 🚀 Quick Start
+
+### Option 1: Unsloth (Fastest - NVIDIA GPU)
+
+\`\`\`bash
+# Install dependencies
+pip install unsloth trl transformers pyyaml
+
+# Train
+python train.py --method unsloth
+\`\`\`
+
+**Requirements**: NVIDIA GPU with 8GB+ VRAM (RTX 3060 or better)
+
+### Option 2: Google Colab (Free GPU)
+
+1. Upload this entire folder to Google Drive
+2. Open Google Colab
+3. Mount Drive and navigate to folder
+4. Run: \`!python train.py --method unsloth\`
+
+### Option 3: MLX (Apple Silicon)
+
+\`\`\`bash
+# Coming soon - MLX training support
+python train.py --method mlx
+\`\`\`
+
+## 📁 Files Included
+
+- \`alpaca_format.jsonl\` - Supervised fine-tuning data
+- \`dpo_format.jsonl\` - Preference pairs for DPO training
+- \`training_config.yaml\` - Hyperparameters and settings
+- \`train.py\` - Auto-generated training script
+- \`rag_corpus.json\` - Full dataset with metadata
+- \`README.md\` - This file
+
+## 🎯 After Training
+
+### Deploy to Browser
+
+1. Convert to WebLLM format:
+\`\`\`bash
+# Coming soon - conversion script
+\`\`\`
+
+2. Host locally or upload to HuggingFace
+3. Update model_id in your HTML
+
+## 📚 Learn More
+
+- [Unsloth Documentation](https://github.com/unslothai/unsloth)
+- [TRL Documentation](https://huggingface.co/docs/trl)
+- [DPO Paper](https://arxiv.org/abs/2305.18290)
+
+---
+
+Made with 🐱 and 🌙
+`;
+        }
+
+        // Export training package as ZIP
+        exportBtn.addEventListener('click', async function() {
+            try {
+                showLearningNotification('📦 Generating training package...');
+
+                const allPairs = await (async () => {
+                    const transaction = learningDB.transaction([STORE_NAME], 'readonly');
+                    const store = transaction.objectStore(STORE_NAME);
+                    return new Promise((resolve) => {
+                        store.getAll().onsuccess = (e) => resolve(e.target.result);
+                    });
+                })();
+
+                // Generate formats
+                const alpacaData = toAlpacaFormat(allPairs);
+                const dpoData = toDPOFormat(allPairs);
+
+                // Calculate stats
+                const stats = await getLearningStats();
+                stats.preference_pairs = dpoData.length;
+                stats.by_category = {};
+                allPairs.filter(p => p.rating === 'up').forEach(p => {
+                    const cat = p.category || detectCategory(p.question);
+                    stats.by_category[cat] = (stats.by_category[cat] || 0) + 1;
+                });
+
+                const config = generateTrainingConfig(stats);
+
+                // Create ZIP
+                const zip = new JSZip();
+
+                // Add data files
+                zip.file("alpaca_format.jsonl",
+                    alpacaData.map(item => JSON.stringify(item)).join('\n'));
+
+                zip.file("dpo_format.jsonl",
+                    dpoData.map(item => JSON.stringify(item)).join('\n'));
+
+                zip.file("training_config.yaml",
+                    jsyaml.dump(config));
+
+                zip.file("rag_corpus.json",
+                    JSON.stringify({
+                        version: 2,
+                        exported: new Date().toISOString(),
+                        stats: stats,
+                        pairs: allPairs.map(p => ({
+                            question: p.question,
+                            answer: p.answer,
+                            rating: p.rating,
+                            category: p.category || detectCategory(p.question),
+                            timestamp: p.timestamp,
+                            conversation_context: p.conversation_context,
+                            system_prompt: p.system_prompt,
+                            rag_context: p.rag_context,
+                            model_version: p.model_version,
+                            inference_params: p.inference_params
+                        }))
+                    }, null, 2));
+
+                // Add training script
+                zip.file("train.py", generateTrainingScript());
+
+                // Add README
+                zip.file("README.md", generateREADME(stats));
+
+                // Generate and download ZIP
+                const blob = await zip.generateAsync({type: "blob"});
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `tinyllama-training-${Date.now()}.zip`;
+                a.click();
+                URL.revokeObjectURL(url);
+
+                showLearningNotification(`✅ Exported ${alpacaData.length} examples, ${dpoData.length} preference pairs!`);
+            } catch (error) {
+                console.error('Export error:', error);
+                showLearningNotification('❌ Export failed! Check console.');
+            }
         });
 
         // Clear database
