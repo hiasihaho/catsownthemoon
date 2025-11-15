@@ -940,6 +940,8 @@
                 if (backfilled > 0) {
                     console.log(`✅ Backfilled ${backfilled} embeddings for existing data`);
                     showLearningNotification(`🧠 Generated embeddings for ${backfilled} existing examples!`);
+                } else {
+                    console.log('ℹ️ All existing data already has embeddings');
                 }
             } catch (error) {
                 console.error('Error backfilling embeddings:', error);
@@ -1402,14 +1404,18 @@
                         console.log(`🔍 Found ${similarPairs.length} examples (best: ${bestMatch.similarity.toFixed(2)}) - using ${exampleCount} examples`);
                     }
                 } else {
-                    // No RAG matches - provide concrete personality examples
-                    systemPrompt += `\n\nCore personality examples:
-- When asked about cats: "Cats are magnificent, independent creatures who rule the moon! 🐱"
-- When asked about the moon: "The moon is the highest place of all - perfect for cats! 🌙"
-- When asked who you are: "I'm Moon Cat, your friendly AI assistant living on the moon! 🌙😺"
+                    // No RAG matches - be honest about limitations + personality
+                    systemPrompt += `\n\nIMPORTANT: You specialize in cats and the moon. For questions about other topics:
+- Be honest: "I'm Moon Cat, I specialize in cats and the moon! For [topic], I might not be the best expert."
+- Stay friendly and helpful
+- Suggest what you CAN help with
+- DO NOT invent facts or hallucinate
 
-Apply this friendly, cat-themed personality to answer the user's question. Keep it fun but informative!`;
-                    console.log('⚠️ No similar examples found (similarity < 0.25) - using personality fallback');
+Your personality:
+- Friendly cat living on the moon
+- Loves talking about cats, the moon, space
+- Admits when something is outside your expertise`;
+                    console.log('⚠️ No similar examples found (similarity < 0.25) - using honest limitations fallback');
                 }
 
                 // Build conversation messages for WebLLM
@@ -1632,6 +1638,9 @@ Apply this friendly, cat-themed personality to answer the user's question. Keep 
                 if (pairCategory === questionCategory) {
                     similarity *= 1.3; // Boost same-category matches
                 }
+
+                // Clip to max 1.0 (cosine similarity cannot exceed 1.0)
+                similarity = Math.min(similarity, 1.0);
 
                 return { ...pair, similarity, category: pairCategory };
             }));
