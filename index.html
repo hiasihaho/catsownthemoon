@@ -1119,7 +1119,9 @@
                     inference_params: metadata.inference_params || {
                         temperature: 0.7,
                         top_p: 0.9,
-                        max_tokens: 300
+                        max_tokens: 300,
+                        repetition_penalty: 1.15,
+                        frequency_penalty: 0.3
                     },
                     alternative_answers: metadata.alternative_answers || [],
                     category: detectCategory(question),
@@ -1452,6 +1454,8 @@ Your personality:
                     max_tokens: 300, // Increased to prevent cutoff
                     temperature: 0.7,
                     top_p: 0.9,
+                    repetition_penalty: 1.15, // Prevent repetition loops
+                    frequency_penalty: 0.3,   // Discourage repeating same phrases
                 });
 
                 // Extract response
@@ -2141,8 +2145,15 @@ Made with 🐱 and 🌙
 
         // Intelligent text chunking with sentence boundaries
         function intelligentChunk(text, maxWords = 400, overlapWords = 80) {
-            // Clean text
-            text = text.trim().replace(/\s+/g, ' ');
+            // Clean text: remove emojis and excess whitespace
+            text = text
+                .replace(/[\u{1F600}-\u{1F64F}]/gu, '') // Emoticons
+                .replace(/[\u{1F300}-\u{1F5FF}]/gu, '') // Misc Symbols and Pictographs
+                .replace(/[\u{1F680}-\u{1F6FF}]/gu, '') // Transport and Map
+                .replace(/[\u{2600}-\u{26FF}]/gu, '')   // Misc symbols
+                .replace(/[\u{2700}-\u{27BF}]/gu, '')   // Dingbats
+                .trim()
+                .replace(/\s+/g, ' ');
 
             // Split into sentences (simple regex)
             const sentences = text.match(/[^.!?]+[.!?]+/g) || [text];
