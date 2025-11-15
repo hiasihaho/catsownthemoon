@@ -1374,15 +1374,18 @@
                 const similarPairs = await findSimilarQuestionsEnhanced(userMessage, 3);
 
                 // Build system prompt with RAG examples
-                let systemPrompt = "You are a helpful, friendly cat AI assistant who lives on the moon. Keep responses concise, fun, and always in English.";
+                let systemPrompt = "You are a helpful, friendly cat AI assistant who lives on the moon. Keep responses concise, fun, and always in English. Give ONE direct answer to the user's question.";
 
                 if (similarPairs.length > 0) {
-                    systemPrompt += '\n\nHere are relevant examples from your knowledge base:\n\n';
-                    for (const pair of similarPairs) {
-                        systemPrompt += `User asked: "${pair.question}"\nYou responded: "${pair.answer}"\n\n`;
-                    }
-                    systemPrompt += 'Use these examples as reference, but respond naturally to the current question. Do NOT copy the format - just answer directly.';
-                    console.log(`🔍 Found ${similarPairs.length} similar examples for RAG`);
+                    // Use only the BEST match (highest similarity) to avoid confusion
+                    const bestMatch = similarPairs[0];
+                    systemPrompt += `\n\nExample of your style:\nWhen asked "${bestMatch.question}", you said: "${bestMatch.answer}"`;
+                    systemPrompt += '\n\nNow answer the current question in a similar friendly style. Give ONE clear, direct answer.';
+                    console.log(`🔍 Found ${similarPairs.length} similar examples, using best match (similarity: ${bestMatch.similarity.toFixed(2)})`);
+                } else {
+                    // No good RAG matches - remind to stay on brand
+                    systemPrompt += '\n\nRemember: You are a friendly cat living on the moon. Keep it fun and cat-themed!';
+                    console.log('⚠️ No similar examples found, using base personality only');
                 }
 
                 // Build conversation messages for WebLLM
@@ -1610,7 +1613,7 @@
             }));
 
             const filtered = scored
-                .filter(p => p.similarity > 0.3 && p.rating === 'up')
+                .filter(p => p.similarity > 0.4 && p.rating === 'up') // Increased threshold for better quality
                 .sort((a, b) => b.similarity - a.similarity)
                 .slice(0, limit);
 
