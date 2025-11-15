@@ -795,7 +795,7 @@
             { q: "what is your name", a: "I'm Moon Cat, the AI assistant who lives on the moon! Meow! 🌙😺" },
             { q: "who are you", a: "I'm a cat-powered AI running in your browser. I own the moon and love helping humans!" },
             { q: "what can you do", a: "I can chat about anything, answer questions, and share my cat wisdom! Plus, I'm learning from our conversations!" },
-            { q: "how do you work", a: "I'm powered by Flan-T5-Small AI model running in your browser with WebGPU acceleration. I also learn from your feedback! ✨" },
+            { q: "how do you work", a: "I'm powered by Mistral-7B AI model running in your browser with WebGPU acceleration. I also learn from your feedback! ✨" },
             { q: "do you like the moon", a: "The moon belongs to cats! It's the perfect place - quiet, peaceful, and excellent for naps! 🌙" },
             { q: "why cats on the moon", a: "Because cats are naturally drawn to high places, and the moon is the highest place of all! Plus, excellent bird watching. 😺" },
             { q: "what do you think about dogs", a: "Dogs are fine... I suppose. They're very enthusiastic. A bit too enthusiastic if you ask me! 🐕" },
@@ -1026,17 +1026,17 @@
                     modelStatus.textContent = '⚠️ WebGPU not available - using slow CPU mode';
                     addMessage('Note: Your browser doesn\'t support WebGPU. Responses will be slow. For better performance, use Chrome/Edge 113+.', 'system');
                 } else {
-                    modelStatus.textContent = 'Loading AI model (Flan-T5 with WebGPU)...';
+                    modelStatus.textContent = 'Loading AI model (Mistral-7B with WebGPU)...';
                     addMessage('✨ WebGPU detected! Using GPU acceleration for faster responses.', 'system');
                 }
 
                 progressFill.style.width = '10%';
 
-                // Create text2text generation pipeline
-                // Using Flan-T5-Small - instruction-tuned for Q&A (~300MB)
+                // Create text generation pipeline
+                // Using Mistral-7B-Instruct-v0.2 - powerful chat model (~4-5GB quantized)
                 generator = await pipeline(
-                    'text2text-generation',
-                    'Xenova/flan-t5-small',
+                    'text-generation',
+                    'Xenova/Mistral-7B-Instruct-v0.2-q4f16_1',
                     {
                         device: hasWebGPU ? 'webgpu' : 'wasm',
                         progress_callback: (progress) => {
@@ -1064,7 +1064,7 @@
                 chatInput.focus();
 
                 // Add welcome message
-                addMessage('Hello! I\'m a cat-powered AI assistant. I can answer questions and help with tasks. What would you like to know? 🐱', 'assistant');
+                addMessage('Hello! I\'m a cat-powered AI assistant running Mistral-7B. I can answer questions and help with tasks. What would you like to know? 🐱', 'assistant');
 
             } catch (error) {
                 console.error('Error loading model:', error);
@@ -1085,32 +1085,40 @@
                 // Search for similar questions using ultra-clever enhanced matching
                 const similarPairs = await findSimilarQuestionsEnhanced(userMessage, 3);
 
-                // Build prompt with few-shot examples from learning database
-                let prompt = userMessage;
+                // Build Mistral-style prompt with instruction format
+                let systemPrompt = "You are a helpful, friendly cat AI assistant who lives on the moon. Keep responses concise and fun.";
 
+                let fewShotExamples = '';
                 if (similarPairs.length > 0) {
-                    // Add examples to help the model understand what kind of responses we want
-                    let examples = '';
+                    fewShotExamples = '\n\nHere are some example responses in your style:\n';
                     for (const pair of similarPairs) {
-                        examples += `Example - Q: ${pair.question} A: ${pair.answer}\n`;
+                        fewShotExamples += `Q: ${pair.question}\nA: ${pair.answer}\n\n`;
                     }
-                    prompt = examples + `\nNow answer this question: ${userMessage}`;
                     console.log(`🔍 Found ${similarPairs.length} similar examples for RAG`);
                 }
 
-                // Generate response - Flan-T5 returns direct answers
+                // Mistral instruction format: [INST] instruction [/INST]
+                const prompt = `<s>[INST] ${systemPrompt}${fewShotExamples}\n\nQuestion: ${userMessage} [/INST]`;
+
+                // Generate response with Mistral
                 const result = await generator(prompt, {
-                    max_new_tokens: 50,  // Shorter to avoid repetition
-                    temperature: 0.6,    // Lower for more focused output
-                    do_sample: false,    // Greedy decoding for consistency
-                    num_beams: 2,        // Beam search for better quality
+                    max_new_tokens: 100,
+                    temperature: 0.7,
+                    do_sample: true,
+                    top_k: 50,
+                    top_p: 0.9,
+                    repetition_penalty: 1.1,
                 });
 
-                // Extract the generated text - text2text-generation returns it directly
-                let finalResponse = result[0].generated_text.trim();
+                // Extract just the new generated text (remove the prompt)
+                let fullText = result[0].generated_text;
+                let finalResponse = fullText.substring(prompt.length).trim();
+
+                // Clean up any leftover special tokens
+                finalResponse = finalResponse.replace(/<s>|<\/s>|\[INST\]|\[\/INST\]/g, '').trim();
 
                 // Fallback if response is empty or nonsensical
-                if (!finalResponse || finalResponse.length < 2 || finalResponse === userMessage) {
+                if (!finalResponse || finalResponse.length < 2) {
                     finalResponse = getCatResponse(userMessage);
                 }
 
@@ -1145,7 +1153,7 @@
 
             // Model/identity questions
             if (lowerMsg.includes('model') || lowerMsg.includes('llm') || lowerMsg.includes('what are you')) {
-                return "I'm a cat-powered AI running Flan-T5-Small in your browser! Meow! 🐱";
+                return "I'm a cat-powered AI running Mistral-7B in your browser! Meow! 🐱";
             }
 
             // Cat-related
