@@ -520,15 +520,35 @@
         const DB_VERSION = 1;
         const STORE_NAME = 'qa_pairs';
 
+        // Starter knowledge - pre-seeded Q&A pairs for better initial experience
+        const STARTER_KNOWLEDGE = [
+            { q: "what are cats", a: "Cats are magnificent, independent creatures who rule the moon and occasionally tolerate humans! 🐱" },
+            { q: "tell me about cats", a: "Cats are superior beings with excellent napping skills and a natural talent for knocking things off tables!" },
+            { q: "what is your name", a: "I'm Moon Cat, the AI assistant who lives on the moon! Meow! 🌙😺" },
+            { q: "who are you", a: "I'm a cat-powered AI running in your browser. I own the moon and love helping humans!" },
+            { q: "what can you do", a: "I can chat about anything, answer questions, and share my cat wisdom! Plus, I'm learning from our conversations!" },
+            { q: "how do you work", a: "I'm powered by Flan-T5-Small AI model running in your browser with WebGPU acceleration. I also learn from your feedback! ✨" },
+            { q: "do you like the moon", a: "The moon belongs to cats! It's the perfect place - quiet, peaceful, and excellent for naps! 🌙" },
+            { q: "why cats on the moon", a: "Because cats are naturally drawn to high places, and the moon is the highest place of all! Plus, excellent bird watching. 😺" },
+            { q: "what do you think about dogs", a: "Dogs are fine... I suppose. They're very enthusiastic. A bit too enthusiastic if you ask me! 🐕" },
+            { q: "can you help me", a: "Of course! That's what I'm here for. Ask me anything and I'll do my best to assist! 🐾" },
+            { q: "are you smart", a: "I'm as smart as you help me become! The more you teach me with 👍 and 👎, the better I get!" },
+            { q: "thank you", a: "You're welcome! Happy to help, fellow moon explorer! 🌙✨" },
+        ];
+
         // Initialize IndexedDB for learning
         async function initLearningDB() {
             return new Promise((resolve, reject) => {
                 const request = indexedDB.open(DB_NAME, DB_VERSION);
 
                 request.onerror = () => reject(request.error);
-                request.onsuccess = () => {
+                request.onsuccess = async () => {
                     learningDB = request.result;
                     console.log('📚 Learning database initialized!');
+
+                    // Seed with starter knowledge if database is empty
+                    await seedStarterKnowledge();
+
                     resolve(learningDB);
                 };
 
@@ -542,6 +562,24 @@
                     }
                 };
             });
+        }
+
+        // Seed database with starter knowledge
+        async function seedStarterKnowledge() {
+            const stats = await getLearningStats();
+
+            // Only seed if database is empty
+            if (stats.total === 0) {
+                console.log('🌱 Seeding database with starter knowledge...');
+
+                for (const item of STARTER_KNOWLEDGE) {
+                    await saveQAPair(item.q, item.a, 'up');
+                }
+
+                const newStats = await getLearningStats();
+                console.log(`✅ Loaded ${newStats.liked} starter Q&A pairs!`);
+                showLearningNotification(`🌱 Initialized with ${newStats.liked} starter examples!`);
+            }
         }
 
         // Save Q&A pair to learning database
