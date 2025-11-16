@@ -2784,27 +2784,37 @@ Made with 🐱 and 🌙
                 const transaction = learningDB.transaction([STORE_NAME], 'readwrite');
                 const store = transaction.objectStore(STORE_NAME);
 
-                // Get the existing entry
-                const entry = await new Promise((resolve, reject) => {
-                    const request = store.get(id);
-                    request.onsuccess = () => resolve(request.result);
+                // Use cursor to find and update the entry
+                const updated = await new Promise((resolve, reject) => {
+                    const request = store.openCursor();
+
+                    request.onsuccess = (e) => {
+                        const cursor = e.target.result;
+                        if (cursor) {
+                            if (cursor.key === id) {
+                                // Found the entry - update it
+                                const entry = cursor.value;
+                                entry.rating = newRating;
+
+                                const updateRequest = cursor.update(entry);
+                                updateRequest.onsuccess = () => resolve(true);
+                                updateRequest.onerror = () => reject(updateRequest.error);
+                            } else {
+                                cursor.continue();
+                            }
+                        } else {
+                            // Cursor exhausted - entry not found
+                            resolve(false);
+                        }
+                    };
+
                     request.onerror = () => reject(request.error);
                 });
 
-                if (!entry) {
+                if (!updated) {
                     console.error('Entry not found:', id);
                     return false;
                 }
-
-                // Update the rating
-                entry.rating = newRating;
-
-                // Save back to database
-                await new Promise((resolve, reject) => {
-                    const request = store.put(entry, id);
-                    request.onsuccess = () => resolve();
-                    request.onerror = () => reject(request.error);
-                });
 
                 await updateAnalytics();
                 const ratingEmoji = newRating === 'star3' ? '⭐⭐⭐' :
