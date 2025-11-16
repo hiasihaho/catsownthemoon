@@ -1629,6 +1629,53 @@
             { q: "can you help me", a: "Of course! That's what I'm here for. Ask me anything and I'll do my best to assist! 🐾" },
             { q: "are you smart", a: "I'm as smart as you help me become! The more you teach me with 👍 and 👎, the better I get!" },
             { q: "thank you", a: "You're welcome! Happy to help, fellow moon explorer! 🌙✨" },
+
+            // 🎯 PHASE 2 DEMO: Q&A with DOM actions!
+            {
+                q: "show me the training panel",
+                a: "Opening the training panel for you! Here you can export your knowledge base for fine-tuning. 🚀",
+                domActions: [
+                    {
+                        type: 'show-panel',
+                        panel: 'trainingPanel',
+                        trigger: 'on-answer-shown',
+                        permission: 'allowed',
+                        delay: 300
+                    }
+                ]
+            },
+            {
+                q: "make it more creative",
+                a: "Setting creativity to maximum! Your responses will now be more imaginative and varied. ✨",
+                domActions: [
+                    {
+                        type: 'set-creativity',
+                        value: 1.2,
+                        trigger: 'on-answer-shown',
+                        permission: 'allowed'
+                    },
+                    {
+                        type: 'notify',
+                        message: '🎨 Creativity set to 1.2!',
+                        trigger: 'on-answer-shown',
+                        permission: 'allowed',
+                        delay: 500
+                    }
+                ]
+            },
+            {
+                q: "add more stars",
+                a: "Adding some extra stars to make our moon even more beautiful! ✨🌟",
+                domActions: [
+                    {
+                        type: 'add-stars',
+                        count: 30,
+                        trigger: 'on-answer-shown',
+                        permission: 'allowed',
+                        delay: 200
+                    }
+                ]
+            }
         ];
 
         // Initialize PouchDB for learning with advanced querying
@@ -1737,7 +1784,9 @@
                 console.log('🌱 Seeding database with starter knowledge...');
 
                 for (const item of STARTER_KNOWLEDGE) {
-                    await saveQAPair(item.q, item.a, 'up');
+                    await saveQAPair(item.q, item.a, 'up', {
+                        domActions: item.domActions || []
+                    });
                 }
 
                 const newStats = await getLearningStats();
@@ -2183,6 +2232,10 @@
                         addMessage(similarPairs[0].answer, 'assistant', userMessage);
                         conversationHistory.push({ role: 'user', content: userMessage });
                         conversationHistory.push({ role: 'assistant', content: similarPairs[0].answer });
+
+                        // 🎯 PHASE 2: Execute DOM actions for this answer
+                        executeRAGDOMActions(similarPairs[0], 'on-answer-shown');
+
                         isGenerating = false;
                         sendBtn.disabled = false;
                         chatInput.disabled = false;
@@ -2509,6 +2562,173 @@ Your personality:
         const dropZone = document.getElementById('dropZone');
         const fileInput = document.getElementById('fileInput');
 
+        // ============================================
+        // PHASE 2: DOM ACTION EXECUTOR
+        // ============================================
+
+        // Safe DOM action whitelist - Only these actions are allowed
+        const ALLOWED_DOM_ACTIONS = {
+            'show-panel': (action) => {
+                const validPanels = ['trainingPanel', 'ragInspectorPanel', 'llmParamsPanel', 'analyticsPanel', 'databaseModal'];
+                const panelId = action.panel;
+                if (validPanels.includes(panelId)) {
+                    const panel = document.getElementById(panelId);
+                    if (panel) {
+                        panel.style.display = action.display || 'flex';
+                        panel.classList.add('active');
+                        console.log(`✅ DOM Action: Showed panel "${panelId}"`);
+                        return true;
+                    }
+                }
+                return false;
+            },
+
+            'hide-panel': (action) => {
+                const panelId = action.panel;
+                const panel = document.getElementById(panelId);
+                if (panel) {
+                    panel.style.display = 'none';
+                    panel.classList.remove('active');
+                    console.log(`✅ DOM Action: Hid panel "${panelId}"`);
+                    return true;
+                }
+                return false;
+            },
+
+            'highlight-element': (action) => {
+                const el = document.querySelector(action.selector);
+                if (el) {
+                    const originalBg = el.style.background;
+                    el.style.background = action.color || 'rgba(139, 92, 246, 0.2)';
+                    el.style.transition = 'background 0.3s';
+
+                    setTimeout(() => {
+                        el.style.background = originalBg;
+                    }, action.duration || 2000);
+
+                    console.log(`✅ DOM Action: Highlighted "${action.selector}"`);
+                    return true;
+                }
+                return false;
+            },
+
+            'add-stars': (action) => {
+                const count = Math.min(Math.max(action.count || 10, 0), 50); // Limit 0-50
+                const starsContainer = document.querySelector('.stars');
+                if (starsContainer) {
+                    for (let i = 0; i < count; i++) {
+                        const star = document.createElement('div');
+                        star.className = 'star';
+                        star.style.left = Math.random() * 100 + '%';
+                        star.style.top = Math.random() * 100 + '%';
+                        star.style.animationDelay = Math.random() * 3 + 's';
+                        starsContainer.appendChild(star);
+                    }
+                    console.log(`✅ DOM Action: Added ${count} stars`);
+                    return true;
+                }
+                return false;
+            },
+
+            'scroll-to': (action) => {
+                const el = document.querySelector(action.selector);
+                if (el) {
+                    el.scrollIntoView({
+                        behavior: action.smooth ? 'smooth' : 'auto',
+                        block: action.block || 'start'
+                    });
+                    console.log(`✅ DOM Action: Scrolled to "${action.selector}"`);
+                    return true;
+                }
+                return false;
+            },
+
+            'set-creativity': (action) => {
+                const value = Math.min(Math.max(action.value || 0.7, 0.1), 1.5);
+                creativityLevel = value;
+                const slider = document.getElementById('creativitySlider');
+                if (slider) {
+                    slider.value = value;
+                    document.getElementById('creativityValue').textContent = value.toFixed(2);
+                }
+                console.log(`✅ DOM Action: Set creativity to ${value}`);
+                return true;
+            },
+
+            'notify': (action) => {
+                const message = action.message || 'Notification';
+                showLearningNotification(message);
+                console.log(`✅ DOM Action: Showed notification "${message}"`);
+                return true;
+            }
+        };
+
+        // Execute DOM action with safety checks
+        function executeDOMAction(action) {
+            if (!action || !action.type) {
+                console.warn('⚠️ Invalid DOM action:', action);
+                return false;
+            }
+
+            // Security check: Only execute if permission is 'allowed'
+            if (action.permission !== 'allowed') {
+                console.warn(`⚠️ DOM action "${action.type}" not permitted (permission: ${action.permission})`);
+                return false;
+            }
+
+            // Execute after optional delay
+            const executeNow = () => {
+                const executor = ALLOWED_DOM_ACTIONS[action.type];
+                if (executor) {
+                    try {
+                        const success = executor(action);
+                        if (success) {
+                            console.log(`✅ Executed DOM action: ${action.type}`);
+                        } else {
+                            console.warn(`⚠️ DOM action failed: ${action.type}`);
+                        }
+                        return success;
+                    } catch (error) {
+                        console.error(`❌ Error executing DOM action "${action.type}":`, error);
+                        return false;
+                    }
+                } else {
+                    console.warn(`⚠️ Unknown DOM action type: ${action.type}`);
+                    return false;
+                }
+            };
+
+            if (action.delay && action.delay > 0) {
+                setTimeout(executeNow, action.delay);
+                return true; // Assume success for delayed actions
+            } else {
+                return executeNow();
+            }
+        }
+
+        // Execute multiple DOM actions from a RAG result
+        function executeRAGDOMActions(ragResult, trigger = 'on-answer-shown') {
+            if (!ragResult || !ragResult.domActions || ragResult.domActions.length === 0) {
+                return 0;
+            }
+
+            let executed = 0;
+            ragResult.domActions.forEach(action => {
+                // Only execute actions matching the trigger
+                if (action.trigger === trigger || !action.trigger) {
+                    if (executeDOMAction(action)) {
+                        executed++;
+                    }
+                }
+            });
+
+            if (executed > 0) {
+                console.log(`✅ Executed ${executed} DOM action(s) for trigger "${trigger}"`);
+            }
+
+            return executed;
+        }
+
         // Category detection - Ultra-clever feature!
         function detectCategory(question) {
             const q = question.toLowerCase();
@@ -2610,10 +2830,28 @@ Your personality:
 
                 similarity *= ratingMultiplier;
 
+                // 🎯 PHASE 2: Context-aware boost - DOM state matching!
+                let contextBoost = false;
+                let contextMatch = 0;
+                if (pair.contextRules) {
+                    const currentDOM = getCurrentDOMState();
+
+                    // Check if this answer prefers current DOM state
+                    if (pair.contextRules.preferredTheme) {
+                        if (pair.contextRules.preferredTheme === currentDOM.theme) {
+                            similarity *= 1.15; // Boost answers designed for current theme
+                            contextBoost = true;
+                            contextMatch++;
+                        }
+                    }
+
+                    // More context rules can be added here (moon_visible, time_of_day, etc.)
+                }
+
                 // Clip to max 1.0 (cosine similarity cannot exceed 1.0)
                 similarity = Math.min(similarity, 1.0);
 
-                return { ...pair, similarity, category: pairCategory, originalSimilarity, categoryBoost, method, ratingMultiplier, ratingBoost };
+                return { ...pair, similarity, category: pairCategory, originalSimilarity, categoryBoost, method, ratingMultiplier, ratingBoost, contextBoost, contextMatch };
             }));
 
             // Log top candidates before filtering
@@ -2630,6 +2868,7 @@ Your personality:
                     if (p.ratingMultiplier > 1.0) boostLabels.push(`+20% ⭐⭐⭐`);
                     else if (p.ratingMultiplier < 1.0) boostLabels.push(`-20% ⭐`);
                 }
+                if (p.contextBoost) boostLabels.push(`+15% 🎯 context`);
                 const boostLabel = boostLabels.length > 0 ? ` [${boostLabels.join(', ')}]` : '';
                 const methodLabel = p.method === 'semantic' ? '🧠' : '🔤';
                 const ratingLabel = p.rating === 'star3' ? '⭐⭐⭐' : p.rating === 'star2' ? '⭐⭐' : p.rating === 'star1' ? '⭐' : p.rating === 'down' ? '👎' : p.rating === 'up' ? '👍' : '⚪';
