@@ -1445,7 +1445,16 @@
         const jsyaml = await import('https://cdn.jsdelivr.net/npm/js-yaml@4.1.0/+esm');
 
         // Import PouchDB for advanced RAG database with Mango queries
-        const PouchDB = (await import('https://cdn.jsdelivr.net/npm/pouchdb@8.0.1/+esm')).default;
+        const PouchDBModule = await import('https://cdn.jsdelivr.net/npm/pouchdb@8.0.1/+esm');
+        const PouchDB = PouchDBModule.default;
+
+        // Import PouchDB-Find plugin for Mango queries (createIndex, find)
+        const PouchDBFindModule = await import('https://cdn.jsdelivr.net/npm/pouchdb-find@8.0.1/+esm');
+        const PouchDBFind = PouchDBFindModule.default;
+
+        // Add the find plugin to PouchDB
+        PouchDB.plugin(PouchDBFind);
+        console.log('📦 PouchDB loaded with Find plugin');
 
         // Import Transformers.js for semantic embeddings
         let transformers = null;
