@@ -1444,6 +1444,9 @@
         // Import js-yaml for config export
         const jsyaml = await import('https://cdn.jsdelivr.net/npm/js-yaml@4.1.0/+esm');
 
+        // Import PouchDB for advanced RAG database with Mango queries
+        const PouchDB = (await import('https://cdn.jsdelivr.net/npm/pouchdb@8.0.1/+esm')).default;
+
         // Import Transformers.js for semantic embeddings
         let transformers = null;
         let embeddingPipeline = null;
@@ -1526,12 +1529,10 @@
             if (!embeddingsReady || !learningDB) return;
 
             try {
-                const transaction = learningDB.transaction([STORE_NAME], 'readwrite');
-                const store = transaction.objectStore(STORE_NAME);
-
-                const allPairs = await new Promise((resolve) => {
-                    store.getAll().onsuccess = (e) => resolve(e.target.result);
-                });
+                const result = await learningDB.allDocs({ include_docs: true });
+                const allPairs = result.rows
+                    .map(row => row.doc)
+                    .filter(doc => doc.type === 'question-answer');
 
                 let backfilled = 0;
                 for (const pair of allPairs) {
@@ -1539,12 +1540,10 @@
                     if (!pair.embedding) {
                         const embedding = await generateEmbedding(pair.question);
                         if (embedding) {
-                            pair.embedding = embedding;
+                            pair.embedding = Array.from(embedding);
 
-                            const updateRequest = store.put(pair);
-                            await new Promise((resolve) => {
-                                updateRequest.onsuccess = () => resolve();
-                            });
+                            // Update the document in PouchDB
+                            await learningDB.put(pair);
 
                             backfilled++;
                         }
@@ -1581,11 +1580,9 @@
         let isGenerating = false;
         let conversationHistory = [];
 
-        // Learning database state
+        // Learning database state (PouchDB)
         let learningDB = null;
-        const DB_NAME = 'CatAILearning';
-        const DB_VERSION = 2; // Upgraded for RLHF/DPO support + semantic embeddings
-        const STORE_NAME = 'qa_pairs';
+        const DB_NAME = 'cats_rag'; // PouchDB database name
 
         // Current system prompt for RLHF tracking
         // Default system prompt
@@ -1625,58 +1622,101 @@
             { q: "thank you", a: "You're welcome! Happy to help, fellow moon explorer! 🌙✨" },
         ];
 
-        // Initialize IndexedDB for learning
+        // Initialize PouchDB for learning with advanced querying
         async function initLearningDB() {
-            return new Promise((resolve, reject) => {
-                const request = indexedDB.open(DB_NAME, DB_VERSION);
+            try {
+                // Create PouchDB instance
+                learningDB = new PouchDB(DB_NAME);
+                console.log('📚 PouchDB Learning database initialized!');
 
-                request.onerror = () => reject(request.error);
-                request.onsuccess = async () => {
-                    learningDB = request.result;
-                    console.log('📚 Learning database initialized!');
-
-                    // Seed with starter knowledge if database is empty
-                    await seedStarterKnowledge();
-
-                    resolve(learningDB);
-                };
-
-                request.onupgradeneeded = (event) => {
-                    const db = event.target.result;
-                    const oldVersion = event.oldVersion;
-                    const newVersion = event.newVersion;
-
-                    console.log(`📊 Upgrading database from v${oldVersion} to v${newVersion}`);
-
-                    let objectStore;
-
-                    // Create store if it doesn't exist (v0 -> v1+)
-                    if (!db.objectStoreNames.contains(STORE_NAME)) {
-                        objectStore = db.createObjectStore(STORE_NAME, { keyPath: 'id', autoIncrement: true });
-                        objectStore.createIndex('question', 'question', { unique: false });
-                        objectStore.createIndex('rating', 'rating', { unique: false });
-                        objectStore.createIndex('timestamp', 'timestamp', { unique: false });
+                // Create indexes for Mango queries (optimized for fast filtering)
+                await learningDB.createIndex({
+                    index: {
+                        fields: ['type', 'rating', 'category', 'timestamp'],
+                        name: 'main-query-index'
                     }
+                });
 
-                    // Upgrade v1 -> v2: Add RLHF fields
-                    if (oldVersion < 2) {
-                        console.log('🔧 Adding RLHF/DPO fields...');
-
-                        // Get object store from transaction
-                        objectStore = event.target.transaction.objectStore(STORE_NAME);
-
-                        // Add new indices
-                        if (!objectStore.indexNames.contains('category')) {
-                            objectStore.createIndex('category', 'category', { unique: false });
-                        }
-                        if (!objectStore.indexNames.contains('model_version')) {
-                            objectStore.createIndex('model_version', 'model_version', { unique: false });
-                        }
-
-                        console.log('✅ Database schema upgraded to v2!');
+                await learningDB.createIndex({
+                    index: {
+                        fields: ['tags'],
+                        name: 'tags-index'
                     }
-                };
-            });
+                });
+
+                await learningDB.createIndex({
+                    index: {
+                        fields: ['type', 'timestamp'],
+                        name: 'type-time-index'
+                    }
+                });
+
+                console.log('📊 Indexes created for fast Mango queries!');
+
+                // Seed with starter knowledge if database is empty
+                await seedStarterKnowledge();
+
+                return learningDB;
+            } catch (error) {
+                console.error('❌ Failed to initialize PouchDB:', error);
+                throw error;
+            }
+        }
+
+        // Auto-generate tags from question and answer
+        function autoGenerateTags(question, answer, category) {
+            const tags = new Set();
+
+            // Always add type tag
+            tags.add('question-answer');
+
+            // Add category as tag
+            if (category) {
+                tags.add(category);
+            }
+
+            // Extract tags from question
+            const q = question.toLowerCase();
+            const a = answer.toLowerCase();
+
+            // UI-related tags
+            if (q.match(/dark|light|theme|color|background/)) tags.add('ui-theme');
+            if (q.match(/panel|show|hide|display/)) tags.add('ui-control');
+            if (q.match(/setting|config|preference/)) tags.add('settings');
+
+            // Technical tags
+            if (q.match(/how.*work|explain|technical|api|code/)) tags.add('technical');
+            if (q.match(/rag|retrieval|search|semantic/)) tags.add('rag');
+            if (q.match(/llm|model|ai|parameter/)) tags.add('ai');
+            if (q.match(/temperature|creativity|top.?p|sampling/)) tags.add('llm-parameters');
+
+            // Cat/Moon theme tags
+            if (q.match(/cat|kitten|feline|meow|purr/) || a.match(/cat|kitten|meow/)) tags.add('cats');
+            if (q.match(/moon|lunar|space|star/) || a.match(/moon|lunar|space/)) tags.add('moon');
+
+            // Support/Help tags
+            if (q.match(/help|assist|support|how to/)) tags.add('help');
+            if (q.match(/thank|appreciate/) || a.match(/welcome|pleasure/)) tags.add('gratitude');
+            if (q.match(/hello|hi|hey|greet/)) tags.add('greeting');
+
+            // Identity tags
+            if (q.match(/who.*you|what.*you|your name/)) tags.add('identity');
+
+            // Learning/Training tags
+            if (q.match(/learn|train|feedback|improve/)) tags.add('learning');
+            if (q.match(/rlhf|dpo|fine.?tun/)) tags.add('training');
+
+            return Array.from(tags);
+        }
+
+        // Get current DOM state
+        function getCurrentDOMState() {
+            return {
+                background_color: getComputedStyle(document.body).background,
+                moon_visible: document.querySelector('.moon') ? true : false,
+                stars_count: document.querySelectorAll('.star').length,
+                theme: document.body.dataset.theme || 'default'
+            };
         }
 
         // Seed database with starter knowledge
@@ -1705,113 +1745,133 @@
             const embedding = await generateEmbedding(question);
 
             // Capture DOM state
-            const domState = {
-                background_color: getComputedStyle(document.body).background,
-                moon_visible: document.querySelector('.moon') ? true : false,
-                stars_count: document.querySelectorAll('.star').length
+            const domState = getCurrentDOMState();
+
+            // Detect category
+            const category = detectCategory(question);
+
+            // Auto-generate tags
+            const tags = metadata.tags || autoGenerateTags(question, answer, category);
+
+            const timestamp = Date.now();
+            const doc = {
+                _id: `qa_${timestamp}_${Math.random().toString(36).substr(2, 9)}`,
+                type: 'question-answer',
+
+                // Core Q&A
+                question: question.toLowerCase(),
+                answer: answer,
+                rating: rating,
+                timestamp: timestamp,
+
+                // NEW: Tags for multi-dimensional categorization
+                tags: tags,
+                category: category,
+
+                // RLHF/DPO fields
+                conversation_context: metadata.conversation_context || [...conversationHistory],
+                system_prompt: metadata.system_prompt || currentSystemPrompt,
+                rag_context: metadata.rag_context || [...lastRAGResults],
+                dom_state: metadata.dom_state || domState,
+                model_version: metadata.model_version || "TinyLlama-1.1B-Chat-v0.4-q4f16_1-MLC",
+                inference_params: metadata.inference_params || {
+                    temperature: creativityLevel,
+                    top_p: expTopP,
+                    top_k: expTopK,
+                    max_tokens: expMaxTokens,
+                    repetition_penalty: expRepetitionPenalty,
+                    frequency_penalty: expFrequencyPenalty,
+                    presence_penalty: expPresencePenalty
+                },
+                alternative_answers: metadata.alternative_answers || [],
+                response_time_ms: metadata.response_time || 0,
+
+                // Semantic embedding (384-dim vector as array for PouchDB)
+                embedding: embedding ? Array.from(embedding) : null,
+
+                // NEW: Placeholder for future DOM actions
+                domActions: metadata.domActions || []
             };
 
-            return new Promise((resolve, reject) => {
-                const transaction = learningDB.transaction([STORE_NAME], 'readwrite');
-                const store = transaction.objectStore(STORE_NAME);
-
-                const data = {
-                    question: question.toLowerCase(),
-                    answer: answer,
-                    rating: rating,
-                    timestamp: Date.now(),
-
-                    // RLHF/DPO fields
-                    conversation_context: metadata.conversation_context || [...conversationHistory],
-                    system_prompt: metadata.system_prompt || currentSystemPrompt,
-                    rag_context: metadata.rag_context || [...lastRAGResults],
-                    dom_state: metadata.dom_state || domState,
-                    model_version: metadata.model_version || "TinyLlama-1.1B-Chat-v0.4-q4f16_1-MLC",
-                    inference_params: metadata.inference_params || {
-                        temperature: 0.7,
-                        top_p: 0.9,
-                        max_tokens: 300,
-                        repetition_penalty: 1.15,
-                        frequency_penalty: 0.3
-                    },
-                    alternative_answers: metadata.alternative_answers || [],
-                    category: detectCategory(question),
-                    response_time_ms: metadata.response_time || 0,
-
-                    // Semantic embedding (384-dim vector)
-                    embedding: embedding
-                };
-
-                const request = store.add(data);
-                request.onsuccess = () => resolve(request.result);
-                request.onerror = () => reject(request.error);
-            });
+            try {
+                const result = await learningDB.put(doc);
+                console.log(`✅ Saved Q&A with tags: ${tags.join(', ')}`);
+                return result.id;
+            } catch (error) {
+                console.error('❌ Failed to save Q&A:', error);
+                throw error;
+            }
         }
 
         // Find similar questions using keyword matching
         async function findSimilarQuestions(question, limit = 3) {
             if (!learningDB) await initLearningDB();
 
-            return new Promise((resolve, reject) => {
-                const transaction = learningDB.transaction([STORE_NAME], 'readonly');
-                const store = transaction.objectStore(STORE_NAME);
-                const request = store.getAll();
+            try {
+                const result = await learningDB.allDocs({ include_docs: true });
+                const allPairs = result.rows
+                    .map(row => row.doc)
+                    .filter(doc => doc.type === 'question-answer');
 
-                request.onsuccess = () => {
-                    const allPairs = request.result;
+                // Simple keyword-based similarity
+                const questionWords = question.toLowerCase().split(/\s+/);
+                const scored = allPairs.map(pair => {
+                    const pairWords = pair.question.split(/\s+/);
+                    const commonWords = questionWords.filter(w => pairWords.includes(w)).length;
+                    const similarity = commonWords / Math.max(questionWords.length, pairWords.length);
+                    return { ...pair, similarity };
+                });
 
-                    // Simple keyword-based similarity
-                    const questionWords = question.toLowerCase().split(/\s+/);
-                    const scored = allPairs.map(pair => {
-                        const pairWords = pair.question.split(/\s+/);
-                        const commonWords = questionWords.filter(w => pairWords.includes(w)).length;
-                        const similarity = commonWords / Math.max(questionWords.length, pairWords.length);
-                        return { ...pair, similarity };
-                    });
+                // Sort by similarity and rating, filter out low similarity
+                const similar = scored
+                    .filter(p => p.similarity > 0.2 && p.rating === 'up')
+                    .sort((a, b) => {
+                        // Prefer higher similarity and positive ratings
+                        if (b.similarity !== a.similarity) return b.similarity - a.similarity;
+                        return (b.rating === 'up' ? 1 : 0) - (a.rating === 'up' ? 1 : 0);
+                    })
+                    .slice(0, limit);
 
-                    // Sort by similarity and rating, filter out low similarity
-                    const similar = scored
-                        .filter(p => p.similarity > 0.2 && p.rating === 'up')
-                        .sort((a, b) => {
-                            // Prefer higher similarity and positive ratings
-                            if (b.similarity !== a.similarity) return b.similarity - a.similarity;
-                            return (b.rating === 'up' ? 1 : 0) - (a.rating === 'up' ? 1 : 0);
-                        })
-                        .slice(0, limit);
-
-                    resolve(similar);
-                };
-
-                request.onerror = () => reject(request.error);
-            });
+                return similar;
+            } catch (error) {
+                console.error('Error finding similar questions:', error);
+                return [];
+            }
         }
 
         // Get learning statistics
         async function getLearningStats() {
             if (!learningDB) await initLearningDB();
 
-            return new Promise((resolve, reject) => {
-                const transaction = learningDB.transaction([STORE_NAME], 'readonly');
-                const store = transaction.objectStore(STORE_NAME);
-                const request = store.getAll();
+            try {
+                const result = await learningDB.allDocs({ include_docs: true });
+                const pairs = result.rows
+                    .map(row => row.doc)
+                    .filter(doc => doc.type === 'question-answer');
 
-                request.onsuccess = () => {
-                    const pairs = request.result;
-                    const stats = {
-                        total: pairs.length,
-                        star1: pairs.filter(p => p.rating === 'star1').length,
-                        star2: pairs.filter(p => p.rating === 'star2').length,
-                        star3: pairs.filter(p => p.rating === 'star3').length,
-                        liked: pairs.filter(p => p.rating === 'up' || p.rating === 'star1' || p.rating === 'star2' || p.rating === 'star3').length,
-                        disliked: pairs.filter(p => p.rating === 'down').length,
-                        // Legacy 'up' support
-                        legacyUp: pairs.filter(p => p.rating === 'up').length
-                    };
-                    resolve(stats);
+                const stats = {
+                    total: pairs.length,
+                    star1: pairs.filter(p => p.rating === 'star1').length,
+                    star2: pairs.filter(p => p.rating === 'star2').length,
+                    star3: pairs.filter(p => p.rating === 'star3').length,
+                    liked: pairs.filter(p => p.rating === 'up' || p.rating === 'star1' || p.rating === 'star2' || p.rating === 'star3').length,
+                    disliked: pairs.filter(p => p.rating === 'down').length,
+                    // Legacy 'up' support
+                    legacyUp: pairs.filter(p => p.rating === 'up').length
                 };
-
-                request.onerror = () => reject(request.error);
-            });
+                return stats;
+            } catch (error) {
+                console.error('❌ Failed to get learning stats:', error);
+                return {
+                    total: 0,
+                    star1: 0,
+                    star2: 0,
+                    star3: 0,
+                    liked: 0,
+                    disliked: 0,
+                    legacyUp: 0
+                };
+            }
         }
 
         // Show learning notification
@@ -2454,22 +2514,45 @@ Your personality:
             return 'general';
         }
 
-        // Enhanced similarity with SEMANTIC VECTOR SEARCH + category weighting
+        // Enhanced similarity with SEMANTIC VECTOR SEARCH + category weighting + MANGO QUERIES
         async function findSimilarQuestionsEnhanced(question, limit = 3) {
-            console.log('🔍 RAG SEARCH START');
+            console.log('🔍 RAG SEARCH START (PouchDB + Mango)');
             console.log(`   Query: "${question}"`);
 
-            const pairs = await (async () => {
-                const transaction = learningDB.transaction([STORE_NAME], 'readonly');
-                const store = transaction.objectStore(STORE_NAME);
-                return new Promise((resolve) => {
-                    store.getAll().onsuccess = (e) => resolve(e.target.result);
-                });
-            })();
+            if (!learningDB) await initLearningDB();
 
             const questionCategory = detectCategory(question);
             console.log(`   Category: ${questionCategory}`);
-            console.log(`   Database size: ${pairs.length} total pairs`);
+
+            // 🚀 MANGO QUERY: Pre-filter at database level (MASSIVE performance boost!)
+            const candidateLimit = 100; // Only fetch top 100 candidates instead of ALL
+            let pairs = [];
+
+            try {
+                const result = await learningDB.find({
+                    selector: {
+                        type: 'question-answer',
+                        rating: { $in: ['star3', 'star2', 'star1', 'up'] }, // Exclude thumbs-down
+                        $or: [
+                            { category: questionCategory },
+                            { category: 'general' }
+                        ]
+                    },
+                    sort: [{ rating: 'desc' }, { timestamp: 'desc' }],
+                    limit: candidateLimit
+                });
+                pairs = result.docs;
+                console.log(`   🎯 Mango pre-filtered: ${pairs.length} candidates (from database)`);
+            } catch (error) {
+                // Fallback: if Mango query fails, get all and filter manually
+                console.warn('   ⚠️ Mango query failed, falling back to allDocs:', error);
+                const allResult = await learningDB.allDocs({ include_docs: true });
+                pairs = allResult.rows
+                    .map(row => row.doc)
+                    .filter(doc => doc.type === 'question-answer' && doc.rating && doc.rating !== 'down');
+            }
+
+            console.log(`   Database candidates: ${pairs.length}`);
 
             // Generate embedding for the question
             const questionEmbedding = await generateEmbedding(question);
@@ -2586,13 +2669,10 @@ Your personality:
         // Update learning analytics display
         async function updateAnalytics() {
             const stats = await getLearningStats();
-            const allPairs = await (async () => {
-                const transaction = learningDB.transaction([STORE_NAME], 'readonly');
-                const store = transaction.objectStore(STORE_NAME);
-                return new Promise((resolve) => {
-                    store.getAll().onsuccess = (e) => resolve(e.target.result);
-                });
-            })();
+            const result = await learningDB.allDocs({ include_docs: true });
+            const allPairs = result.rows
+                .map(row => row.doc)
+                .filter(doc => doc.type === 'question-answer');
 
             // Update badge and fuel
             knowledgeBadge.textContent = stats.liked;
@@ -2946,13 +3026,10 @@ Made with 🐱 and 🌙
             try {
                 showLearningNotification('📦 Generating training package...');
 
-                const allPairs = await (async () => {
-                    const transaction = learningDB.transaction([STORE_NAME], 'readonly');
-                    const store = transaction.objectStore(STORE_NAME);
-                    return new Promise((resolve) => {
-                        store.getAll().onsuccess = (e) => resolve(e.target.result);
-                    });
-                })();
+                const result = await learningDB.allDocs({ include_docs: true });
+                const allPairs = result.rows
+                    .map(row => row.doc)
+                    .filter(doc => doc.type === 'question-answer');
 
                 // Generate formats
                 const alpacaData = toAlpacaFormat(allPairs);
@@ -3026,12 +3103,22 @@ Made with 🐱 and 🌙
         // Clear database
         clearBtn.addEventListener('click', async function() {
             if (confirm('Are you sure you want to clear all learning data? This cannot be undone!')) {
-                const transaction = learningDB.transaction([STORE_NAME], 'readwrite');
-                const store = transaction.objectStore(STORE_NAME);
-                await store.clear();
+                try {
+                    // Get all docs and delete them
+                    const result = await learningDB.allDocs();
+                    const docsToDelete = result.rows.map(row => ({
+                        _id: row.id,
+                        _rev: row.value.rev,
+                        _deleted: true
+                    }));
+                    await learningDB.bulkDocs(docsToDelete);
 
-                await updateAnalytics();
-                showLearningNotification('🗑️ All learning data cleared!');
+                    await updateAnalytics();
+                    showLearningNotification('🗑️ All learning data cleared!');
+                } catch (error) {
+                    console.error('Error clearing database:', error);
+                    showLearningNotification('❌ Failed to clear database');
+                }
             }
         });
 
@@ -3393,13 +3480,14 @@ Made with 🐱 and 🌙
             }
 
             try {
-                const transaction = learningDB.transaction([STORE_NAME], 'readwrite');
-                const store = transaction.objectStore(STORE_NAME);
-                await new Promise((resolve, reject) => {
-                    const request = store.clear();
-                    request.onsuccess = () => resolve();
-                    request.onerror = () => reject(request.error);
-                });
+                // Get all docs and delete them
+                const result = await learningDB.allDocs();
+                const docsToDelete = result.rows.map(row => ({
+                    _id: row.id,
+                    _rev: row.value.rev,
+                    _deleted: true
+                }));
+                await learningDB.bulkDocs(docsToDelete);
 
                 await updateAnalytics();
                 showLearningNotification('🗑️ All learnings cleared!');
@@ -3413,40 +3501,14 @@ Made with 🐱 and 🌙
         // Update rating for existing Q&A pair by ID
         async function updateQAPairRating(id, newRating) {
             try {
-                const transaction = learningDB.transaction([STORE_NAME], 'readwrite');
-                const store = transaction.objectStore(STORE_NAME);
+                // Get the document first
+                const doc = await learningDB.get(id);
 
-                // Use cursor to find and update the entry
-                const updated = await new Promise((resolve, reject) => {
-                    const request = store.openCursor();
+                // Update the rating
+                doc.rating = newRating;
 
-                    request.onsuccess = (e) => {
-                        const cursor = e.target.result;
-                        if (cursor) {
-                            if (cursor.key === id) {
-                                // Found the entry - update it
-                                const entry = cursor.value;
-                                entry.rating = newRating;
-
-                                const updateRequest = cursor.update(entry);
-                                updateRequest.onsuccess = () => resolve(true);
-                                updateRequest.onerror = () => reject(updateRequest.error);
-                            } else {
-                                cursor.continue();
-                            }
-                        } else {
-                            // Cursor exhausted - entry not found
-                            resolve(false);
-                        }
-                    };
-
-                    request.onerror = () => reject(request.error);
-                });
-
-                if (!updated) {
-                    console.error('Entry not found:', id);
-                    return false;
-                }
+                // Save it back
+                await learningDB.put(doc);
 
                 await updateAnalytics();
                 const ratingEmoji = newRating === 'star3' ? '⭐⭐⭐' :
@@ -3469,13 +3531,11 @@ Made with 🐱 and 🌙
             }
 
             try {
-                const transaction = learningDB.transaction([STORE_NAME], 'readwrite');
-                const store = transaction.objectStore(STORE_NAME);
-                await new Promise((resolve, reject) => {
-                    const request = store.delete(id);
-                    request.onsuccess = () => resolve();
-                    request.onerror = () => reject(request.error);
-                });
+                // Get the document first to get its _rev
+                const doc = await learningDB.get(id);
+
+                // Delete it
+                await learningDB.remove(doc);
 
                 await updateAnalytics();
                 showLearningNotification('🗑️ Entry deleted!');
@@ -3777,24 +3837,11 @@ Q: `;
         // Function to load and display database (separated for reuse after delete)
         async function loadAndDisplayDatabase() {
             try {
-                const transaction = learningDB.transaction([STORE_NAME], 'readonly');
-                const store = transaction.objectStore(STORE_NAME);
-
-                // Get all pairs with their IDs using cursor
-                const pairsWithIds = await new Promise((resolve) => {
-                    const results = [];
-                    const request = store.openCursor();
-
-                    request.onsuccess = (e) => {
-                        const cursor = e.target.result;
-                        if (cursor) {
-                            results.push({ id: cursor.key, ...cursor.value });
-                            cursor.continue();
-                        } else {
-                            resolve(results);
-                        }
-                    };
-                });
+                // Get all Q&A pairs from PouchDB
+                const result = await learningDB.allDocs({ include_docs: true });
+                const pairsWithIds = result.rows
+                    .map(row => ({ id: row.id, ...row.doc }))
+                    .filter(doc => doc.type === 'question-answer');
 
                 const content = document.getElementById('databaseContent');
                 if (pairsWithIds.length === 0) {
@@ -3834,6 +3881,11 @@ Q: `;
                         const category = p.category || detectCategory(p.question);
                         const source = p.source || 'manual';
                         const hasEmbedding = p.embedding ? '🧠' : '🔤';
+                        const tags = p.tags || [];
+                        const tagsHTML = tags.length > 0 ?
+                            `<div style="display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px;">
+                                ${tags.map(tag => `<span style="background: linear-gradient(135deg, #e0e7ff 0%, #ddd6fe 100%); color: #5b21b6; padding: 2px 8px; border-radius: 12px; font-size: 10px; font-weight: 500;">${tag}</span>`).join('')}
+                            </div>` : '';
 
                         html += `
                             <div style="border: 1px solid #e5e7eb; border-left: 4px solid ${borderColor}; padding: 12px; border-radius: 8px; background: white;" data-id="${p.id}">
@@ -3852,6 +3904,7 @@ Q: `;
                                 <div style="color: #666; font-size: 13px; margin-bottom: 8px;">
                                     <strong style="color: #8b5cf6;">A:</strong> ${p.answer}
                                 </div>
+                                ${tagsHTML}
                                 <div style="display: flex; gap: 6px; padding-top: 8px; margin-top: 8px; border-top: 1px solid rgba(0,0,0,0.05); justify-content: flex-end;">
                                     <button class="rating-change-btn" data-id="${p.id}" data-rating="star1" style="background: ${p.rating === 'star1' ? 'rgba(251, 146, 60, 0.3)' : 'rgba(255, 255, 255, 0.6)'}; border: 1px solid ${p.rating === 'star1' ? '#fb923c' : 'rgba(0,0,0,0.1)'}; border-radius: 4px; padding: 4px 8px; font-size: 14px; cursor: pointer; transition: all 0.2s;" title="Okay (0.8× weight)">⭐</button>
                                     <button class="rating-change-btn" data-id="${p.id}" data-rating="star2" style="background: ${p.rating === 'star2' || p.rating === 'up' ? 'rgba(16, 185, 129, 0.2)' : 'rgba(255, 255, 255, 0.6)'}; border: 1px solid ${p.rating === 'star2' || p.rating === 'up' ? '#10b981' : 'rgba(0,0,0,0.1)'}; border-radius: 4px; padding: 4px 8px; font-size: 14px; cursor: pointer; transition: all 0.2s;" title="Good (1.0× weight)">⭐⭐</button>
@@ -3869,7 +3922,7 @@ Q: `;
                     document.querySelectorAll('.delete-entry-btn').forEach(btn => {
                         btn.addEventListener('click', async function(e) {
                             e.stopPropagation();
-                            const id = parseInt(this.getAttribute('data-id'));
+                            const id = this.getAttribute('data-id'); // PouchDB uses string IDs
                             const deleted = await deleteQAPair(id);
                             if (deleted) {
                                 // Refresh the database view
@@ -3894,7 +3947,7 @@ Q: `;
                     document.querySelectorAll('.rating-change-btn').forEach(btn => {
                         btn.addEventListener('click', async function(e) {
                             e.stopPropagation();
-                            const id = parseInt(this.getAttribute('data-id'));
+                            const id = this.getAttribute('data-id'); // PouchDB uses string IDs
                             const newRating = this.getAttribute('data-rating');
                             const updated = await updateQAPairRating(id, newRating);
                             if (updated) {
