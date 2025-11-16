@@ -2778,40 +2778,84 @@ Made with 🐱 and 🌙
             }
         });
 
+        // Delete single Q&A pair by ID
+        async function deleteQAPair(id) {
+            if (!confirm('🗑️ Delete this Q&A pair? This cannot be undone.')) {
+                return false;
+            }
+
+            try {
+                const transaction = learningDB.transaction([STORE_NAME], 'readwrite');
+                const store = transaction.objectStore(STORE_NAME);
+                await new Promise((resolve, reject) => {
+                    const request = store.delete(id);
+                    request.onsuccess = () => resolve();
+                    request.onerror = () => reject(request.error);
+                });
+
+                await updateAnalytics();
+                showLearningNotification('🗑️ Entry deleted!');
+                console.log(`✅ Deleted entry ID: ${id}`);
+                return true;
+            } catch (error) {
+                console.error('❌ Error deleting entry:', error);
+                alert('Failed to delete entry. See console for details.');
+                return false;
+            }
+        }
+
         // View Database Button
         viewDatabaseBtn.addEventListener('click', async function() {
+            await loadAndDisplayDatabase();
+        });
+
+        // Function to load and display database (separated for reuse after delete)
+        async function loadAndDisplayDatabase() {
             try {
                 const transaction = learningDB.transaction([STORE_NAME], 'readonly');
                 const store = transaction.objectStore(STORE_NAME);
-                const pairs = await new Promise((resolve) => {
-                    store.getAll().onsuccess = (e) => resolve(e.target.result);
+
+                // Get all pairs with their IDs using cursor
+                const pairsWithIds = await new Promise((resolve) => {
+                    const results = [];
+                    const request = store.openCursor();
+
+                    request.onsuccess = (e) => {
+                        const cursor = e.target.result;
+                        if (cursor) {
+                            results.push({ id: cursor.key, ...cursor.value });
+                            cursor.continue();
+                        } else {
+                            resolve(results);
+                        }
+                    };
                 });
 
                 const content = document.getElementById('databaseContent');
-                if (pairs.length === 0) {
+                if (pairsWithIds.length === 0) {
                     content.innerHTML = '<p style="text-align: center; color: #666; padding: 40px;">No Q&A pairs in database yet.</p>';
                 } else {
-                    const star3Count = pairs.filter(p => p.rating === 'star3').length;
-                    const star2Count = pairs.filter(p => p.rating === 'star2').length;
-                    const star1Count = pairs.filter(p => p.rating === 'star1').length;
-                    const downCount = pairs.filter(p => p.rating === 'down').length;
-                    const legacyUp = pairs.filter(p => p.rating === 'up').length;
+                    const star3Count = pairsWithIds.filter(p => p.rating === 'star3').length;
+                    const star2Count = pairsWithIds.filter(p => p.rating === 'star2').length;
+                    const star1Count = pairsWithIds.filter(p => p.rating === 'star1').length;
+                    const downCount = pairsWithIds.filter(p => p.rating === 'down').length;
+                    const legacyUp = pairsWithIds.filter(p => p.rating === 'up').length;
 
                     let html = `
                         <div style="margin-bottom: 15px; padding: 10px; background: #f3f4f6; border-radius: 8px;">
-                            <strong>Total Entries:</strong> ${pairs.length} |
+                            <strong>Total Entries:</strong> ${pairsWithIds.length} |
                             <strong>⭐⭐⭐:</strong> ${star3Count} |
                             <strong>⭐⭐:</strong> ${star2Count} |
                             <strong>⭐:</strong> ${star1Count} |
                             <strong>👎:</strong> ${downCount}
                             ${legacyUp > 0 ? `| <strong>👍 (old):</strong> ${legacyUp}` : ''}
                         </div>
-                        <div style="display: grid; gap: 10px;">
+                        <div style="display: grid; gap: 10px;" id="databaseEntries">
                     `;
 
-                    pairs.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+                    pairsWithIds.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
 
-                    pairs.forEach((p, i) => {
+                    pairsWithIds.forEach((p, i) => {
                         const date = p.timestamp ? new Date(p.timestamp).toLocaleString() : 'Unknown';
                         const rating = p.rating === 'star3' ? '⭐⭐⭐' :
                                       p.rating === 'star2' ? '⭐⭐' :
@@ -2827,10 +2871,15 @@ Made with 🐱 and 🌙
                         const hasEmbedding = p.embedding ? '🧠' : '🔤';
 
                         html += `
-                            <div style="border: 1px solid #e5e7eb; border-left: 4px solid ${borderColor}; padding: 12px; border-radius: 8px; background: white;">
+                            <div style="border: 1px solid #e5e7eb; border-left: 4px solid ${borderColor}; padding: 12px; border-radius: 8px; background: white;" data-id="${p.id}">
                                 <div style="display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 11px; color: #666;">
                                     <span>${rating} ${hasEmbedding} <strong style="color: #333;">#${i + 1}</strong> | ${category} | ${source}</span>
-                                    <span>${date}</span>
+                                    <div style="display: flex; align-items: center; gap: 8px;">
+                                        <span>${date}</span>
+                                        <button class="delete-entry-btn" data-id="${p.id}" style="background: #fee2e2; color: #991b1b; border: 1px solid #fecaca; border-radius: 4px; padding: 4px 8px; font-size: 11px; cursor: pointer; transition: all 0.2s;" title="Delete this entry">
+                                            🗑️ Delete
+                                        </button>
+                                    </div>
                                 </div>
                                 <div style="margin-bottom: 6px;">
                                     <strong style="color: #8b5cf6;">Q:</strong> <span style="color: #333;">${p.question}</span>
@@ -2844,6 +2893,31 @@ Made with 🐱 and 🌙
 
                     html += '</div>';
                     content.innerHTML = html;
+
+                    // Add event listeners to all delete buttons
+                    document.querySelectorAll('.delete-entry-btn').forEach(btn => {
+                        btn.addEventListener('click', async function(e) {
+                            e.stopPropagation();
+                            const id = parseInt(this.getAttribute('data-id'));
+                            const deleted = await deleteQAPair(id);
+                            if (deleted) {
+                                // Refresh the database view
+                                await loadAndDisplayDatabase();
+                            }
+                        });
+
+                        // Hover effect
+                        btn.addEventListener('mouseenter', function() {
+                            this.style.background = '#ef4444';
+                            this.style.color = 'white';
+                            this.style.borderColor = '#dc2626';
+                        });
+                        btn.addEventListener('mouseleave', function() {
+                            this.style.background = '#fee2e2';
+                            this.style.color = '#991b1b';
+                            this.style.borderColor = '#fecaca';
+                        });
+                    });
                 }
 
                 document.getElementById('databaseModal').style.display = 'flex';
@@ -2851,7 +2925,7 @@ Made with 🐱 and 🌙
                 console.error('Error loading database:', error);
                 alert('Failed to load database. See console for details.');
             }
-        });
+        }
 
         document.getElementById('closeDatabaseBtn').addEventListener('click', function() {
             document.getElementById('databaseModal').style.display = 'none';
