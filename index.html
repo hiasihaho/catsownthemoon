@@ -2904,95 +2904,98 @@ Made with 🐱 and 🌙
         async function generateEnrichments(originalQuestion, originalAnswer) {
             console.log('🎨 Generating enrichments for:', originalQuestion);
 
-            const enrichmentPrompt = `You are a Q&A variation generator. Create exactly 3 variations of this question-answer pair. Each variation should:
-- Keep the SAME core meaning and facts
-- Use different wording or phrasing
-- Be concise and clear
-- Stay strictly on topic - NO hallucinations or new information
+            // Use few-shot examples - works better with TinyLlama 1.1B
+            const enrichmentPrompt = `Rewrite this question and answer 3 times using different words. Keep the same meaning.
 
-Original Q&A:
-Q: ${originalQuestion}
-A: ${originalAnswer}
+Example:
+Original: Q: What is a cat? A: A cat is a small furry animal that meows.
 
-Generate exactly 3 variations in this EXACT format:
+Variation 1: Q: Can you tell me about cats? A: Cats are small furry creatures that make meowing sounds.
+Variation 2: Q: What are cats? A: A cat is a furry pet that says meow.
+Variation 3: Q: Describe a cat. A: Cats are small animals with fur that meow.
 
-VARIATION 1:
-Q: [alternative question wording]
-A: [alternative answer wording]
+Now do the same for this:
+Original: Q: ${originalQuestion} A: ${originalAnswer}
 
-VARIATION 2:
-Q: [alternative question wording]
-A: [alternative answer wording]
-
-VARIATION 3:
-Q: [alternative question wording]
-A: [alternative answer wording]
-
-IMPORTANT: Only output the 3 variations above. Do NOT add explanations, comments, or extra text.`;
+Variation 1: Q: `;  // Start the completion
 
             try {
                 // Generate variations using TinyLlama
                 const response = await engine.chat.completions.create({
                     messages: [{ role: 'user', content: enrichmentPrompt }],
-                    temperature: 0.8,
-                    max_tokens: 500,
-                    repetition_penalty: 1.2
+                    temperature: 0.9,  // Higher for more creative variations
+                    max_tokens: 600,
+                    repetition_penalty: 1.3
                 });
 
-                const rawOutput = response.choices[0].message.content;
+                // Prepend the start we provided in the prompt
+                const rawOutput = 'Variation 1: Q: ' + response.choices[0].message.content;
                 console.log('🤖 Raw enrichment output:', rawOutput);
 
-                // Forgiving parser - extract Q&A pairs from any format
+                // Forgiving parser - handle both inline and multi-line formats
                 const variations = [];
-                const lines = rawOutput.split('\n').map(l => l.trim()).filter(l => l.length > 0);
 
-                let currentVariation = null;
-                let currentQuestion = null;
-                let currentAnswer = null;
-
-                for (let i = 0; i < lines.length; i++) {
-                    const line = lines[i];
-
-                    // Match variation headers (flexible)
-                    if (/^(VARIATION|Variation|VAR\.?)\s*[:\-#]?\s*[123]/i.test(line)) {
-                        // Save previous variation if exists
-                        if (currentQuestion && currentAnswer) {
-                            variations.push({ question: currentQuestion, answer: currentAnswer });
-                        }
-                        currentQuestion = null;
-                        currentAnswer = null;
-                        continue;
-                    }
-
-                    // Match question lines
-                    if (/^Q[:\-]?\s*/i.test(line)) {
-                        currentQuestion = line.replace(/^Q[:\-]?\s*/i, '').trim();
-                        continue;
-                    }
-
-                    // Match answer lines
-                    if (/^A[:\-]?\s*/i.test(line)) {
-                        currentAnswer = line.replace(/^A[:\-]?\s*/i, '').trim();
-
-                        // Collect multi-line answers
-                        while (i + 1 < lines.length && !/^(Q[:\-]|A[:\-]|VARIATION)/i.test(lines[i + 1])) {
-                            i++;
-                            currentAnswer += ' ' + lines[i].trim();
-                        }
-
-                        // Save complete Q&A pair
-                        if (currentQuestion && currentAnswer) {
-                            variations.push({ question: currentQuestion, answer: currentAnswer });
-                            currentQuestion = null;
-                            currentAnswer = null;
-                        }
-                        continue;
+                // Try to parse inline format first: "Variation 1: Q: ... A: ..."
+                const inlineRegex = /Variation\s*\d+\s*:\s*Q:\s*(.+?)\s*A:\s*(.+?)(?=(?:Variation\s*\d+|$))/gi;
+                let match;
+                while ((match = inlineRegex.exec(rawOutput)) !== null) {
+                    const question = match[1].trim();
+                    const answer = match[2].trim();
+                    if (question && answer) {
+                        variations.push({ question, answer });
                     }
                 }
 
-                // Save last variation if incomplete parse
-                if (currentQuestion && currentAnswer) {
-                    variations.push({ question: currentQuestion, answer: currentAnswer });
+                // If inline parsing didn't work, try line-by-line parsing
+                if (variations.length === 0) {
+                    const lines = rawOutput.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+                    let currentQuestion = null;
+                    let currentAnswer = null;
+
+                    for (let i = 0; i < lines.length; i++) {
+                        const line = lines[i];
+
+                        // Match variation headers (flexible)
+                        if (/^(VARIATION|Variation|VAR\.?)\s*[:\-#]?\s*[123]/i.test(line)) {
+                            // Save previous variation if exists
+                            if (currentQuestion && currentAnswer) {
+                                variations.push({ question: currentQuestion, answer: currentAnswer });
+                            }
+                            currentQuestion = null;
+                            currentAnswer = null;
+                            continue;
+                        }
+
+                        // Match question lines
+                        if (/^Q[:\-]?\s*/i.test(line)) {
+                            currentQuestion = line.replace(/^Q[:\-]?\s*/i, '').trim();
+                            continue;
+                        }
+
+                        // Match answer lines
+                        if (/^A[:\-]?\s*/i.test(line)) {
+                            currentAnswer = line.replace(/^A[:\-]?\s*/i, '').trim();
+
+                            // Collect multi-line answers
+                            while (i + 1 < lines.length && !/^(Q[:\-]|A[:\-]|VARIATION)/i.test(lines[i + 1])) {
+                                i++;
+                                currentAnswer += ' ' + lines[i].trim();
+                            }
+
+                            // Save complete Q&A pair
+                            if (currentQuestion && currentAnswer) {
+                                variations.push({ question: currentQuestion, answer: currentAnswer });
+                                currentQuestion = null;
+                                currentAnswer = null;
+                            }
+                            continue;
+                        }
+                    }
+
+                    // Save last variation if incomplete parse
+                    if (currentQuestion && currentAnswer) {
+                        variations.push({ question: currentQuestion, answer: currentAnswer });
+                    }
                 }
 
                 // Validation and cleanup
@@ -3000,9 +3003,15 @@ IMPORTANT: Only output the 3 variations above. Do NOT add explanations, comments
                     .filter(v => v.question && v.answer)
                     .filter(v => v.question.length >= 5 && v.answer.length >= 10)
                     .filter(v => v.question !== originalQuestion || v.answer !== originalAnswer)
+                    // CRITICAL: Reject placeholder text with brackets
+                    .filter(v => !v.question.includes('[') && !v.question.includes(']'))
+                    .filter(v => !v.answer.includes('[') && !v.answer.includes(']'))
+                    // Reject if contains template keywords
+                    .filter(v => !v.question.toLowerCase().includes('alternative') && !v.question.toLowerCase().includes('wording'))
+                    .filter(v => !v.answer.toLowerCase().includes('alternative') && !v.answer.toLowerCase().includes('wording'))
                     .slice(0, 3);
 
-                console.log(`✅ Parsed ${validVariations.length} valid variations`);
+                console.log(`✅ Parsed ${validVariations.length} valid variations (rejected ${variations.length - validVariations.length} invalid)`);
 
                 // If we didn't get enough variations, pad with slight modifications
                 while (validVariations.length < 3) {
