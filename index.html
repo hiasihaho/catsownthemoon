@@ -967,6 +967,32 @@
                         </p>
                     </div>
 
+                    <!-- Minimum RAG Temperature Slider -->
+                    <div style="margin-bottom: 20px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                            <label style="font-size: 12px; font-weight: bold; color: #78350f;">🌡️ Min RAG Temperature</label>
+                            <span id="minRagTempValue" style="font-size: 12px; color: #92400e; font-family: monospace;">0.4</span>
+                        </div>
+                        <input type="range" id="minRagTempSlider" min="0.1" max="1.0" step="0.1" value="0.4"
+                            style="width: 100%; height: 6px; border-radius: 3px; background: linear-gradient(90deg, #ef4444 0%, #f59e0b 50%, #10b981 100%); outline: none; -webkit-appearance: none;">
+                        <div style="display: flex; justify-content: space-between; font-size: 10px; color: #92400e; margin-top: 4px;">
+                            <span>Disabled</span>
+                            <span>Balanced</span>
+                            <span>Strict</span>
+                        </div>
+                        <p style="font-size: 10px; color: #92400e; margin-top: 6px; font-style: italic; line-height: 1.4;">
+                            <strong>Auto-boosts low creativity when RAG results exist.</strong><br>
+                            • 0.1 = Disabled (allow any creativity)<br>
+                            • 0.4 = Balanced (recommended - prevents ignoring RAG)<br>
+                            • 0.6+ = Strict (forces RAG adherence even with low creativity)
+                        </p>
+                        <div style="background: #fef3c7; border-left: 3px solid #f59e0b; padding: 8px; margin-top: 8px; border-radius: 4px;">
+                            <div style="font-size: 10px; color: #78350f; line-height: 1.4;">
+                                <strong>💡 Why this matters:</strong> At very low temperature (&lt;0.4), TinyLlama ignores RAG context and follows base training patterns. This setting prevents that by auto-boosting temperature when database results are found.
+                            </div>
+                        </div>
+                    </div>
+
                     <!-- System Prompt Editor -->
                     <div style="margin-bottom: 15px;">
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
@@ -1252,6 +1278,7 @@
         // Advanced control settings
         let creativityLevel = 0.7;  // Default temperature
         let ragInfluence = 0.5;     // Default RAG influence (0-1 scale)
+        let minRAGTemperature = 0.4; // Minimum temperature when RAG results exist (prevents ignoring context)
 
         // Starter knowledge - pre-seeded Q&A pairs for better initial experience
         const STARTER_KNOWLEDGE = [
@@ -1867,11 +1894,13 @@ Your personality:
                 // Use creativity level from advanced controls
 
                 // CRITICAL FIX: Minimum temperature for RAG contexts
-                // At very low temperature (< 0.4), TinyLlama ignores RAG context and follows base training
+                // At very low temperature, TinyLlama ignores RAG context and follows base training
                 let effectiveTemperature = creativityLevel;
-                if (similarPairs.length > 0 && creativityLevel < 0.4) {
-                    effectiveTemperature = 0.4; // Minimum for RAG adherence
-                    console.log(`⚠️ Creativity too low (${creativityLevel.toFixed(1)}) - boosting to 0.4 for RAG context adherence`);
+                if (similarPairs.length > 0 && creativityLevel < minRAGTemperature) {
+                    effectiveTemperature = minRAGTemperature;
+                    const statusText = minRAGTemperature <= 0.2 ? 'disabled (allowing low temp)' :
+                                      minRAGTemperature >= 0.6 ? 'strict enforcement' : 'balanced protection';
+                    console.log(`⚠️ Creativity too low (${creativityLevel.toFixed(1)}) - boosting to ${minRAGTemperature.toFixed(1)} for RAG context adherence (${statusText})`);
                 }
 
                 const adjustedTopP = Math.min(0.99, 0.7 + (effectiveTemperature - 0.7) * 0.2); // Scale top_p with creativity
@@ -3631,6 +3660,7 @@ Q: `;
                     const settings = JSON.parse(saved);
                     creativityLevel = settings.creativity || 0.7;
                     ragInfluence = settings.ragInfluence || 0.5;
+                    minRAGTemperature = settings.minRAGTemperature || 0.4;
                     currentSystemPrompt = settings.systemPrompt || DEFAULT_SYSTEM_PROMPT;
 
                     // Update UI
@@ -3638,6 +3668,8 @@ Q: `;
                     document.getElementById('creativityValue').textContent = creativityLevel.toFixed(1);
                     document.getElementById('ragInfluenceSlider').value = ragInfluence;
                     document.getElementById('ragInfluenceValue').textContent = ragInfluence.toFixed(1);
+                    document.getElementById('minRagTempSlider').value = minRAGTemperature;
+                    document.getElementById('minRagTempValue').textContent = minRAGTemperature.toFixed(1);
                     document.getElementById('systemPromptEditor').value = currentSystemPrompt;
 
                     console.log('✅ Loaded advanced settings:', settings);
@@ -3655,6 +3687,7 @@ Q: `;
             const settings = {
                 creativity: creativityLevel,
                 ragInfluence: ragInfluence,
+                minRAGTemperature: minRAGTemperature,
                 systemPrompt: currentSystemPrompt
             };
             localStorage.setItem('advancedSettings', JSON.stringify(settings));
@@ -3686,6 +3719,17 @@ Q: `;
             ragInfluence = parseFloat(this.value);
             ragInfluenceValue.textContent = ragInfluence.toFixed(1);
             console.log(`🧠 RAG influence: ${ragInfluence}`);
+        });
+
+        // Minimum RAG Temperature slider
+        const minRagTempSlider = document.getElementById('minRagTempSlider');
+        const minRagTempValue = document.getElementById('minRagTempValue');
+        minRagTempSlider.addEventListener('input', function() {
+            minRAGTemperature = parseFloat(this.value);
+            minRagTempValue.textContent = minRAGTemperature.toFixed(1);
+            const statusText = minRAGTemperature <= 0.2 ? 'DISABLED' :
+                              minRAGTemperature >= 0.6 ? 'STRICT' : 'BALANCED';
+            console.log(`🌡️ Min RAG temperature: ${minRAGTemperature} (${statusText})`);
         });
 
         // System Prompt editor
