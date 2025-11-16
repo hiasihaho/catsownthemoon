@@ -774,12 +774,33 @@
                 <span class="stat-value" id="statTotal">0</span>
             </div>
             <div class="stat-item">
-                <span class="stat-label">Good Responses</span>
+                <span class="stat-label">All Rated</span>
                 <span class="stat-value" id="statLiked">0</span>
             </div>
             <div class="stat-item">
                 <span class="stat-label">Learning Progress</span>
                 <span class="stat-value" id="statProgress">0%</span>
+            </div>
+
+            <!-- Star Rating Breakdown -->
+            <div style="margin-top: 15px; padding: 15px; background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%); border-radius: 10px; border-left: 4px solid #f59e0b;">
+                <h4 style="font-size: 14px; margin-bottom: 10px; color: #92400e;">⭐ Quality Breakdown</h4>
+                <div class="stat-item" style="border: none; padding: 5px 0;">
+                    <span class="stat-label">⭐⭐⭐ Excellent:</span>
+                    <span class="stat-value" id="statStar3">0</span>
+                </div>
+                <div class="stat-item" style="border: none; padding: 5px 0;">
+                    <span class="stat-label">⭐⭐ Good:</span>
+                    <span class="stat-value" id="statStar2">0</span>
+                </div>
+                <div class="stat-item" style="border: none; padding: 5px 0;">
+                    <span class="stat-label">⭐ Okay:</span>
+                    <span class="stat-value" id="statStar1">0</span>
+                </div>
+                <div class="stat-item" style="border: none; padding: 5px 0;">
+                    <span class="stat-label">👎 Bad:</span>
+                    <span class="stat-value" id="statDown">0</span>
+                </div>
             </div>
 
             <div class="category-breakdown" id="categoryBreakdown">
@@ -1274,8 +1295,13 @@
                     const pairs = request.result;
                     const stats = {
                         total: pairs.length,
-                        liked: pairs.filter(p => p.rating === 'up').length,
-                        disliked: pairs.filter(p => p.rating === 'down').length
+                        star1: pairs.filter(p => p.rating === 'star1').length,
+                        star2: pairs.filter(p => p.rating === 'star2').length,
+                        star3: pairs.filter(p => p.rating === 'star3').length,
+                        liked: pairs.filter(p => p.rating === 'up' || p.rating === 'star1' || p.rating === 'star2' || p.rating === 'star3').length,
+                        disliked: pairs.filter(p => p.rating === 'down').length,
+                        // Legacy 'up' support
+                        legacyUp: pairs.filter(p => p.rating === 'up').length
                     };
                     resolve(stats);
                 };
@@ -1375,36 +1401,70 @@
                 });
             }
 
-            // Add rating buttons for assistant messages
+            // Add rating buttons for assistant messages (STAR RATING SYSTEM)
             if (role === 'assistant' && questionContext) {
                 const ratingDiv = document.createElement('div');
                 ratingDiv.className = 'message-rating';
 
-                const thumbsUp = document.createElement('button');
-                thumbsUp.className = 'rating-btn';
-                thumbsUp.innerHTML = '👍';
-                thumbsUp.title = 'Good response';
-                thumbsUp.onclick = async () => {
-                    thumbsUp.classList.add('active');
-                    thumbsDown.classList.remove('active');
-                    // Store the clean content without thinking blocks
-                    await saveQAPair(questionContext, displayContent, 'up');
-                    const stats = await getLearningStats();
-                    showLearningNotification(`✨ Learned! (${stats.liked} good answers stored)`);
+                // Helper to clear all active states
+                const clearActive = () => {
+                    ratingDiv.querySelectorAll('.rating-btn').forEach(btn => btn.classList.remove('active'));
                 };
 
+                // Star 1 - Okay
+                const star1 = document.createElement('button');
+                star1.className = 'rating-btn';
+                star1.innerHTML = '⭐';
+                star1.title = 'Okay answer (0.8× weight)';
+                star1.onclick = async () => {
+                    clearActive();
+                    star1.classList.add('active');
+                    await saveQAPair(questionContext, displayContent, 'star1');
+                    const stats = await getLearningStats();
+                    showLearningNotification(`⭐ Saved as okay (${stats.total} total)`);
+                };
+
+                // Star 2 - Good
+                const star2 = document.createElement('button');
+                star2.className = 'rating-btn';
+                star2.innerHTML = '⭐⭐';
+                star2.title = 'Good answer (1.0× weight)';
+                star2.onclick = async () => {
+                    clearActive();
+                    star2.classList.add('active');
+                    await saveQAPair(questionContext, displayContent, 'star2');
+                    const stats = await getLearningStats();
+                    showLearningNotification(`⭐⭐ Saved as good! (${stats.total} total)`);
+                };
+
+                // Star 3 - Excellent
+                const star3 = document.createElement('button');
+                star3.className = 'rating-btn';
+                star3.innerHTML = '⭐⭐⭐';
+                star3.title = 'Excellent answer (1.2× weight)';
+                star3.onclick = async () => {
+                    clearActive();
+                    star3.classList.add('active');
+                    await saveQAPair(questionContext, displayContent, 'star3');
+                    const stats = await getLearningStats();
+                    showLearningNotification(`✨ Saved as excellent! (${stats.total} total)`);
+                };
+
+                // Thumbs Down - Bad
                 const thumbsDown = document.createElement('button');
                 thumbsDown.className = 'rating-btn';
                 thumbsDown.innerHTML = '👎';
-                thumbsDown.title = 'Bad response';
+                thumbsDown.title = 'Bad response (excluded from RAG)';
                 thumbsDown.onclick = async () => {
+                    clearActive();
                     thumbsDown.classList.add('active');
-                    thumbsUp.classList.remove('active');
                     await saveQAPair(questionContext, displayContent, 'down');
-                    showLearningNotification('📝 Noted. I\'ll try to avoid this.');
+                    showLearningNotification('👎 Noted. This will be excluded from search.');
                 };
 
-                ratingDiv.appendChild(thumbsUp);
+                ratingDiv.appendChild(star1);
+                ratingDiv.appendChild(star2);
+                ratingDiv.appendChild(star3);
                 ratingDiv.appendChild(thumbsDown);
                 messageDiv.appendChild(ratingDiv);
             }
@@ -1779,10 +1839,25 @@ Your personality:
                     categoryBoost = true;
                 }
 
+                // Star rating multiplier - quality weighting!
+                let ratingMultiplier = 1.0;
+                let ratingBoost = false;
+                if (pair.rating === 'star3') {
+                    ratingMultiplier = 1.2; // Excellent answers get boosted
+                    ratingBoost = true;
+                } else if (pair.rating === 'star2' || pair.rating === 'up') {
+                    ratingMultiplier = 1.0; // Good answers (normal weight) - 'up' for backward compatibility
+                } else if (pair.rating === 'star1') {
+                    ratingMultiplier = 0.8; // Okay answers get de-prioritized
+                    ratingBoost = true;
+                }
+
+                similarity *= ratingMultiplier;
+
                 // Clip to max 1.0 (cosine similarity cannot exceed 1.0)
                 similarity = Math.min(similarity, 1.0);
 
-                return { ...pair, similarity, category: pairCategory, originalSimilarity, categoryBoost, method };
+                return { ...pair, similarity, category: pairCategory, originalSimilarity, categoryBoost, method, ratingMultiplier, ratingBoost };
             }));
 
             // Log top candidates before filtering
@@ -1793,23 +1868,38 @@ Your personality:
             console.log(`\n   📊 Top 10 candidates (before filtering):`);
             topCandidates.forEach((p, i) => {
                 const answerPreview = p.answer.substring(0, 60) + (p.answer.length > 60 ? '...' : '');
-                const boostLabel = p.categoryBoost ? ` [+30% ${p.category}]` : '';
+                const boostLabels = [];
+                if (p.categoryBoost) boostLabels.push(`+30% ${p.category}`);
+                if (p.ratingBoost) {
+                    if (p.ratingMultiplier > 1.0) boostLabels.push(`+20% ⭐⭐⭐`);
+                    else if (p.ratingMultiplier < 1.0) boostLabels.push(`-20% ⭐`);
+                }
+                const boostLabel = boostLabels.length > 0 ? ` [${boostLabels.join(', ')}]` : '';
                 const methodLabel = p.method === 'semantic' ? '🧠' : '🔤';
-                console.log(`   ${i+1}. ${methodLabel} Score: ${p.similarity.toFixed(3)}${boostLabel} | Rating: ${p.rating || 'none'}`);
+                const ratingLabel = p.rating === 'star3' ? '⭐⭐⭐' : p.rating === 'star2' ? '⭐⭐' : p.rating === 'star1' ? '⭐' : p.rating === 'down' ? '👎' : p.rating === 'up' ? '👍' : '⚪';
+                console.log(`   ${i+1}. ${methodLabel} Score: ${p.similarity.toFixed(3)}${boostLabel} | ${ratingLabel}`);
                 console.log(`      Q: "${p.question}"`);
                 console.log(`      A: "${answerPreview}"`);
             });
 
             const filtered = scored
-                .filter(p => p.similarity > 0.25 && p.rating === 'up') // Lowered for better recall
+                .filter(p => {
+                    // Exclude thumbs-down and unrated entries
+                    if (p.rating === 'down' || !p.rating) return false;
+                    // Accept any star rating (star1, star2, star3) or legacy 'up'
+                    return p.similarity > 0.25;
+                })
                 .sort((a, b) => b.similarity - a.similarity)
                 .slice(0, limit);
 
-            console.log(`\n   ✅ Final matches (threshold: >0.25, rating: up, limit: ${limit}):`);
+            console.log(`\n   ✅ Final matches (threshold: >0.25, stars only, limit: ${limit}):`);
             if (filtered.length > 0) {
                 filtered.forEach((p, i) => {
                     const answerPreview = p.answer.substring(0, 80) + (p.answer.length > 80 ? '...' : '');
-                    const boostLabel = p.categoryBoost ? ` (boosted from ${p.originalSimilarity.toFixed(3)})` : '';
+                    const boostParts = [];
+                    if (p.categoryBoost) boostParts.push(`cat: ${p.originalSimilarity.toFixed(3)}`);
+                    if (p.ratingBoost) boostParts.push(`rating: ×${p.ratingMultiplier}`);
+                    const boostLabel = boostParts.length > 0 ? ` (${boostParts.join(', ')})` : '';
                     console.log(`   ${i+1}. Score: ${p.similarity.toFixed(3)}${boostLabel}`);
                     console.log(`      Q: "${p.question}"`);
                     console.log(`      A: "${answerPreview}"`);
@@ -1850,9 +1940,15 @@ Your personality:
             document.getElementById('statLiked').textContent = stats.liked;
             document.getElementById('statProgress').textContent = Math.round(progress) + '%';
 
-            // Category breakdown
+            // Update star rating breakdown
+            document.getElementById('statStar3').textContent = stats.star3;
+            document.getElementById('statStar2').textContent = stats.star2;
+            document.getElementById('statStar1').textContent = stats.star1;
+            document.getElementById('statDown').textContent = stats.disliked;
+
+            // Category breakdown (include all star ratings)
             const categories = {};
-            allPairs.filter(p => p.rating === 'up').forEach(pair => {
+            allPairs.filter(p => p.rating === 'up' || p.rating === 'star1' || p.rating === 'star2' || p.rating === 'star3').forEach(pair => {
                 const cat = detectCategory(pair.question);
                 categories[cat] = (categories[cat] || 0) + 1;
             });
@@ -1890,8 +1986,8 @@ Your personality:
         // Quality filtering for training data
         function filterQualityExamples(qaPairs) {
             return qaPairs.filter(pair => {
-                // Minimum requirements
-                if (pair.rating !== 'up') return false;
+                // Minimum requirements - accept all star ratings (star1, star2, star3) and legacy 'up'
+                if (pair.rating !== 'up' && pair.rating !== 'star1' && pair.rating !== 'star2' && pair.rating !== 'star3') return false;
                 if (!pair.answer || pair.answer.length < 10) return false;
                 if (!pair.question || pair.question.length < 3) return false;
 
@@ -2663,12 +2759,20 @@ Made with 🐱 and 🌙
                 if (pairs.length === 0) {
                     content.innerHTML = '<p style="text-align: center; color: #666; padding: 40px;">No Q&A pairs in database yet.</p>';
                 } else {
+                    const star3Count = pairs.filter(p => p.rating === 'star3').length;
+                    const star2Count = pairs.filter(p => p.rating === 'star2').length;
+                    const star1Count = pairs.filter(p => p.rating === 'star1').length;
+                    const downCount = pairs.filter(p => p.rating === 'down').length;
+                    const legacyUp = pairs.filter(p => p.rating === 'up').length;
+
                     let html = `
                         <div style="margin-bottom: 15px; padding: 10px; background: #f3f4f6; border-radius: 8px;">
                             <strong>Total Entries:</strong> ${pairs.length} |
-                            <strong>👍 Liked:</strong> ${pairs.filter(p => p.rating === 'up').length} |
-                            <strong>👎 Disliked:</strong> ${pairs.filter(p => p.rating === 'down').length} |
-                            <strong>⚪ Neutral:</strong> ${pairs.filter(p => !p.rating || p.rating === 'neutral').length}
+                            <strong>⭐⭐⭐:</strong> ${star3Count} |
+                            <strong>⭐⭐:</strong> ${star2Count} |
+                            <strong>⭐:</strong> ${star1Count} |
+                            <strong>👎:</strong> ${downCount}
+                            ${legacyUp > 0 ? `| <strong>👍 (old):</strong> ${legacyUp}` : ''}
                         </div>
                         <div style="display: grid; gap: 10px;">
                     `;
@@ -2677,13 +2781,21 @@ Made with 🐱 and 🌙
 
                     pairs.forEach((p, i) => {
                         const date = p.timestamp ? new Date(p.timestamp).toLocaleString() : 'Unknown';
-                        const rating = p.rating === 'up' ? '👍' : p.rating === 'down' ? '👎' : '⚪';
+                        const rating = p.rating === 'star3' ? '⭐⭐⭐' :
+                                      p.rating === 'star2' ? '⭐⭐' :
+                                      p.rating === 'star1' ? '⭐' :
+                                      p.rating === 'down' ? '👎' :
+                                      p.rating === 'up' ? '👍' : '⚪';
+                        const borderColor = p.rating === 'star3' ? '#fbbf24' :
+                                           p.rating === 'star2' || p.rating === 'up' ? '#10b981' :
+                                           p.rating === 'star1' ? '#fb923c' :
+                                           p.rating === 'down' ? '#ef4444' : '#9ca3af';
                         const category = p.category || detectCategory(p.question);
                         const source = p.source || 'manual';
                         const hasEmbedding = p.embedding ? '🧠' : '🔤';
 
                         html += `
-                            <div style="border: 1px solid #e5e7eb; border-left: 4px solid ${p.rating === 'up' ? '#10b981' : p.rating === 'down' ? '#ef4444' : '#9ca3af'}; padding: 12px; border-radius: 8px; background: white;">
+                            <div style="border: 1px solid #e5e7eb; border-left: 4px solid ${borderColor}; padding: 12px; border-radius: 8px; background: white;">
                                 <div style="display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 11px; color: #666;">
                                     <span>${rating} ${hasEmbedding} <strong style="color: #333;">#${i + 1}</strong> | ${category} | ${source}</span>
                                     <span>${date}</span>
