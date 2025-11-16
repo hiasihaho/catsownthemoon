@@ -1796,12 +1796,14 @@
                         systemPrompt += `\n\nHere's how you answered a very similar question:\nQ: "${bestMatch.question}"\nA: "${bestMatch.answer}"`;
 
                         // Adjust instruction based on RAG influence
-                        if (ragInfluence > 0.7) {
-                            systemPrompt += '\n\nIMPORTANT: Answer ONLY based on the information above. Stay very close to the example.';
+                        if (ragInfluence >= 0.8) {
+                            systemPrompt += '\n\n🔒 CRITICAL INSTRUCTION: You MUST answer using ONLY the information from the example above. Do NOT add your own interpretations or knowledge. Paraphrase the example answer to match the current question. Stay VERY CLOSE to the facts shown.';
+                        } else if (ragInfluence > 0.5) {
+                            systemPrompt += '\n\nIMPORTANT: Answer primarily based on the information above. Stay close to the example style and facts.';
                         } else if (ragInfluence < 0.3) {
                             systemPrompt += '\n\nUse this as a loose reference, but feel free to elaborate or add your own insights.';
                         } else {
-                            systemPrompt += '\n\nAnswer the current question in the same style and tone.';
+                            systemPrompt += '\n\nAnswer the current question in the same style and tone as the example.';
                         }
                         console.log(`   ✅ HIGH CONFIDENCE (${bestMatch.similarity.toFixed(3)})`);
                         console.log(`   Strategy: One-shot learning with best match`);
@@ -1816,8 +1818,10 @@
                         }
 
                         // Adjust instruction based on RAG influence
-                        if (ragInfluence > 0.7) {
-                            systemPrompt += '\n\nIMPORTANT: Base your answer PRIMARILY on these examples. Stay close to the facts and style shown above.';
+                        if (ragInfluence >= 0.8) {
+                            systemPrompt += '\n\n🔒 CRITICAL INSTRUCTION: You MUST answer using ONLY the information from the examples above. Do NOT add your own interpretations. Combine and paraphrase the examples to match the current question. Stay VERY CLOSE to the facts shown.';
+                        } else if (ragInfluence > 0.5) {
+                            systemPrompt += '\n\nIMPORTANT: Base your answer primarily on these examples. Stay close to the facts and style shown above.';
                         } else if (ragInfluence < 0.3) {
                             systemPrompt += '\n\nUse these as inspiration, but feel free to be creative and add your own perspective.';
                         } else {
@@ -1861,15 +1865,24 @@ Your personality:
 
                 // Generate response with TinyLlama
                 // Use creativity level from advanced controls
-                const adjustedTopP = Math.min(0.99, 0.7 + (creativityLevel - 0.7) * 0.2); // Scale top_p with creativity
-                const adjustedRepPenalty = Math.max(1.0, 1.3 - (creativityLevel - 0.7) * 0.3); // Lower penalty for high creativity
 
-                console.log(`🎨 Generation params: temp=${creativityLevel.toFixed(1)}, top_p=${adjustedTopP.toFixed(2)}, rep_penalty=${adjustedRepPenalty.toFixed(2)}`);
+                // CRITICAL FIX: Minimum temperature for RAG contexts
+                // At very low temperature (< 0.4), TinyLlama ignores RAG context and follows base training
+                let effectiveTemperature = creativityLevel;
+                if (similarPairs.length > 0 && creativityLevel < 0.4) {
+                    effectiveTemperature = 0.4; // Minimum for RAG adherence
+                    console.log(`⚠️ Creativity too low (${creativityLevel.toFixed(1)}) - boosting to 0.4 for RAG context adherence`);
+                }
+
+                const adjustedTopP = Math.min(0.99, 0.7 + (effectiveTemperature - 0.7) * 0.2); // Scale top_p with creativity
+                const adjustedRepPenalty = Math.max(1.0, 1.3 - (effectiveTemperature - 0.7) * 0.3); // Lower penalty for high creativity
+
+                console.log(`🎨 Generation params: temp=${effectiveTemperature.toFixed(1)}, top_p=${adjustedTopP.toFixed(2)}, rep_penalty=${adjustedRepPenalty.toFixed(2)}`);
 
                 const reply = await engine.chat.completions.create({
                     messages: messages,
                     max_tokens: 300, // Increased to prevent cutoff
-                    temperature: creativityLevel, // Use slider value
+                    temperature: effectiveTemperature, // Use adjusted temperature
                     top_p: adjustedTopP,
                     repetition_penalty: adjustedRepPenalty, // Prevent repetition loops
                     frequency_penalty: 0.3,   // Discourage repeating same phrases
