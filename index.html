@@ -2253,6 +2253,12 @@
                     const maxResults = Math.max(1, Math.ceil(ragInfluence * 10));
                     console.log(`🧠 RAG INFLUENCE: ${ragInfluence.toFixed(1)} - Blended mode (max ${maxResults} results)`);
                     similarPairs = await findSimilarQuestionsEnhanced(userMessage, maxResults);
+
+                    // 🎯 PHASE 2: Execute DOM actions for high-confidence matches in blended mode too!
+                    if (similarPairs.length > 0 && similarPairs[0].similarity > 0.7) {
+                        console.log(`🎯 High confidence in blended mode (${similarPairs[0].similarity.toFixed(3)}) - executing DOM actions`);
+                        executeRAGDOMActions(similarPairs[0], 'on-answer-shown');
+                    }
                 }
 
                 // Debug: Check if embeddings are working
@@ -2767,7 +2773,7 @@ Your personality:
                             { category: 'general' }
                         ]
                     },
-                    sort: [{ rating: 'desc' }, { timestamp: 'desc' }],
+                    // Note: No sort here - we sort by similarity after cosine calculation anyway
                     limit: candidateLimit
                 });
                 pairs = result.docs;
