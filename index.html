@@ -747,6 +747,115 @@
         .drop-zone input {
             display: none;
         }
+
+        /* Live Parameter Preview Footer */
+        .param-preview-footer {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: linear-gradient(135deg, rgba(26, 31, 77, 0.95) 0%, rgba(45, 27, 78, 0.95) 100%);
+            backdrop-filter: blur(10px);
+            border-top: 2px solid rgba(102, 126, 234, 0.3);
+            padding: 8px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 15px;
+            z-index: 10001;
+            font-size: 11px;
+            color: rgba(255, 255, 255, 0.9);
+            box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.3);
+            font-family: 'Courier New', monospace;
+        }
+
+        .param-group {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .param-item {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            background: rgba(255, 255, 255, 0.1);
+            padding: 4px 8px;
+            border-radius: 4px;
+            transition: all 0.3s ease;
+        }
+
+        .param-item.changed {
+            background: rgba(102, 126, 234, 0.4);
+            box-shadow: 0 0 10px rgba(102, 126, 234, 0.5);
+            animation: paramPulse 0.5s ease-out;
+        }
+
+        @keyframes paramPulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+            100% { transform: scale(1); }
+        }
+
+        .param-label {
+            color: rgba(184, 184, 255, 0.8);
+            font-weight: bold;
+        }
+
+        .param-value {
+            color: #4ade80;
+            font-weight: bold;
+        }
+
+        .param-value.auto {
+            color: #fbbf24;
+        }
+
+        .toggle-footer-btn {
+            background: rgba(102, 126, 234, 0.3);
+            border: 1px solid rgba(102, 126, 234, 0.5);
+            color: white;
+            padding: 4px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 10px;
+            transition: all 0.2s ease;
+        }
+
+        .toggle-footer-btn:hover {
+            background: rgba(102, 126, 234, 0.5);
+            transform: translateY(-1px);
+        }
+
+        .tooltip-hint {
+            position: relative;
+            display: inline-block;
+            cursor: help;
+        }
+
+        .tooltip-hint::after {
+            content: attr(data-hint);
+            position: absolute;
+            bottom: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.9);
+            color: white;
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 10px;
+            white-space: nowrap;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.2s ease;
+            margin-bottom: 5px;
+            z-index: 10002;
+        }
+
+        .tooltip-hint:hover::after {
+            opacity: 1;
+        }
     </style>
 </head>
 <body>
@@ -1017,6 +1126,216 @@
                 </div>
             </div>
 
+            <!-- EXPERIMENTAL PARAMETERS SECTION -->
+            <div style="margin-top: 20px; padding: 15px; background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%); border-radius: 10px; border-left: 4px solid #0284c7;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; cursor: pointer;" id="experimentalParamsHeader">
+                    <h4 style="font-size: 14px; margin: 0; color: #0c4a6e;">🧪 Experimental Parameters</h4>
+                    <span id="experimentalParamsToggle" style="font-size: 18px; color: #0c4a6e;">▼</span>
+                </div>
+                <div id="experimentalParamsContent" style="display: block;">
+                    <p style="font-size: 11px; color: #075985; margin-bottom: 15px; line-height: 1.4;">
+                        Fine-tune LLM behavior at the parameter level. Each setting has tooltips explaining its effect with examples.
+                    </p>
+
+                    <!-- Auto-Adjust Toggle -->
+                    <div style="background: #fef3c7; border-left: 3px solid #f59e0b; padding: 10px; margin-bottom: 15px; border-radius: 4px;">
+                        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 12px; color: #78350f;">
+                            <input type="checkbox" id="autoAdjustToggle" checked style="width: 16px; height: 16px; cursor: pointer;">
+                            <span class="tooltip-hint" data-hint="When enabled, top_p and repetition_penalty auto-adjust based on temperature for optimal results">
+                                🔄 Auto-adjust top_p & repetition_penalty
+                            </span>
+                        </label>
+                        <p style="font-size: 10px; color: #92400e; margin: 6px 0 0 24px; font-style: italic; line-height: 1.3;">
+                            Recommended: Keep enabled for balanced behavior
+                        </p>
+                    </div>
+
+                    <!-- Sampling Parameters -->
+                    <div style="background: rgba(255, 255, 255, 0.5); padding: 12px; border-radius: 8px; margin-bottom: 15px;">
+                        <h5 style="font-size: 12px; color: #0c4a6e; margin: 0 0 12px 0;">🎯 Sampling Parameters</h5>
+
+                        <!-- Top-P -->
+                        <div style="margin-bottom: 15px;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                                <label style="font-size: 11px; font-weight: bold; color: #0c4a6e;">
+                                    <span class="tooltip-hint" data-hint="Nucleus sampling: Samples from smallest set of tokens whose cumulative probability exceeds P. Lower = more focused, higher = more diverse">
+                                        Top-P (Nucleus Sampling)
+                                    </span>
+                                </label>
+                                <span id="topPValue" style="font-size: 11px; color: #075985; font-family: monospace;">0.9</span>
+                            </div>
+                            <input type="range" id="topPSlider" min="0.1" max="1.0" step="0.05" value="0.9"
+                                style="width: 100%; height: 6px; border-radius: 3px; background: linear-gradient(90deg, #3b82f6 0%, #10b981 100%); outline: none; -webkit-appearance: none;">
+                            <div style="display: flex; justify-content: space-between; font-size: 9px; color: #64748b; margin-top: 4px;">
+                                <span>Focused (0.1)</span>
+                                <span>Balanced (0.5)</span>
+                                <span>Diverse (1.0)</span>
+                            </div>
+                            <p style="font-size: 9px; color: #475569; margin-top: 4px; font-style: italic;">
+                                Example: 0.9 = consider top 90% probability mass
+                            </p>
+                        </div>
+
+                        <!-- Top-K -->
+                        <div style="margin-bottom: 15px;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                                <label style="font-size: 11px; font-weight: bold; color: #0c4a6e;">
+                                    <span class="tooltip-hint" data-hint="Samples from top K most likely tokens. 0 = disabled. Lower = more predictable, higher = more random">
+                                        Top-K (Top-K Sampling)
+                                    </span>
+                                </label>
+                                <span id="topKValue" style="font-size: 11px; color: #075985; font-family: monospace;">0 (disabled)</span>
+                            </div>
+                            <input type="range" id="topKSlider" min="0" max="100" step="5" value="0"
+                                style="width: 100%; height: 6px; border-radius: 3px; background: linear-gradient(90deg, #6b7280 0%, #3b82f6 100%); outline: none; -webkit-appearance: none;">
+                            <div style="display: flex; justify-content: space-between; font-size: 9px; color: #64748b; margin-top: 4px;">
+                                <span>Disabled (0)</span>
+                                <span>Moderate (50)</span>
+                                <span>Permissive (100)</span>
+                            </div>
+                            <p style="font-size: 9px; color: #475569; margin-top: 4px; font-style: italic;">
+                                Example: 50 = pick from top 50 tokens only
+                            </p>
+                        </div>
+                    </div>
+
+                    <!-- Penalty Parameters -->
+                    <div style="background: rgba(255, 255, 255, 0.5); padding: 12px; border-radius: 8px; margin-bottom: 15px;">
+                        <h5 style="font-size: 12px; color: #0c4a6e; margin: 0 0 12px 0;">📊 Penalty Parameters</h5>
+
+                        <!-- Frequency Penalty -->
+                        <div style="margin-bottom: 15px;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                                <label style="font-size: 11px; font-weight: bold; color: #0c4a6e;">
+                                    <span class="tooltip-hint" data-hint="Discourages repeating the same words based on their frequency. Higher = more variety">
+                                        Frequency Penalty
+                                    </span>
+                                </label>
+                                <span id="freqPenaltyValue" style="font-size: 11px; color: #075985; font-family: monospace;">0.3</span>
+                            </div>
+                            <input type="range" id="freqPenaltySlider" min="0.0" max="2.0" step="0.1" value="0.3"
+                                style="width: 100%; height: 6px; border-radius: 3px; background: linear-gradient(90deg, #10b981 0%, #f59e0b 50%, #ef4444 100%); outline: none; -webkit-appearance: none;">
+                            <div style="display: flex; justify-content: space-between; font-size: 9px; color: #64748b; margin-top: 4px;">
+                                <span>None (0.0)</span>
+                                <span>Moderate (1.0)</span>
+                                <span>Strong (2.0)</span>
+                            </div>
+                            <p style="font-size: 9px; color: #475569; margin-top: 4px; font-style: italic;">
+                                0.0: "cats cats cats" | 0.5: "cats, felines, kitties"
+                            </p>
+                        </div>
+
+                        <!-- Presence Penalty -->
+                        <div style="margin-bottom: 15px;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                                <label style="font-size: 11px; font-weight: bold; color: #0c4a6e;">
+                                    <span class="tooltip-hint" data-hint="Encourages using new vocabulary. Penalizes tokens that already appear regardless of frequency">
+                                        Presence Penalty
+                                    </span>
+                                </label>
+                                <span id="presPenaltyValue" style="font-size: 11px; color: #075985; font-family: monospace;">0.0</span>
+                            </div>
+                            <input type="range" id="presPenaltySlider" min="0.0" max="2.0" step="0.1" value="0.0"
+                                style="width: 100%; height: 6px; border-radius: 3px; background: linear-gradient(90deg, #10b981 0%, #f59e0b 50%, #ef4444 100%); outline: none; -webkit-appearance: none;">
+                            <div style="display: flex; justify-content: space-between; font-size: 9px; color: #64748b; margin-top: 4px;">
+                                <span>None (0.0)</span>
+                                <span>Moderate (1.0)</span>
+                                <span>Strong (2.0)</span>
+                            </div>
+                            <p style="font-size: 9px; color: #475569; margin-top: 4px; font-style: italic;">
+                                0.5: Uses new words after first appearance
+                            </p>
+                        </div>
+
+                        <!-- Repetition Penalty -->
+                        <div style="margin-bottom: 15px;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                                <label style="font-size: 11px; font-weight: bold; color: #0c4a6e;">
+                                    <span class="tooltip-hint" data-hint="MLC-specific: Penalizes all repeated tokens. Higher = less repetition but may reduce coherence">
+                                        Repetition Penalty (MLC)
+                                    </span>
+                                </label>
+                                <span id="repPenaltyValue" style="font-size: 11px; color: #075985; font-family: monospace;">1.15</span>
+                            </div>
+                            <input type="range" id="repPenaltySlider" min="1.0" max="2.0" step="0.05" value="1.15"
+                                style="width: 100%; height: 6px; border-radius: 3px; background: linear-gradient(90deg, #10b981 0%, #f59e0b 50%, #ef4444 100%); outline: none; -webkit-appearance: none;">
+                            <div style="display: flex; justify-content: space-between; font-size: 9px; color: #64748b; margin-top: 4px;">
+                                <span>None (1.0)</span>
+                                <span>Moderate (1.3)</span>
+                                <span>Strong (2.0)</span>
+                            </div>
+                            <p style="font-size: 9px; color: #475569; margin-top: 4px; font-style: italic;">
+                                Recommended: 1.1-1.3 for TinyLlama
+                            </p>
+                        </div>
+                    </div>
+
+                    <!-- Output Length -->
+                    <div style="background: rgba(255, 255, 255, 0.5); padding: 12px; border-radius: 8px; margin-bottom: 15px;">
+                        <h5 style="font-size: 12px; color: #0c4a6e; margin: 0 0 12px 0;">📏 Output Length</h5>
+
+                        <div style="margin-bottom: 0;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                                <label style="font-size: 11px; font-weight: bold; color: #0c4a6e;">
+                                    <span class="tooltip-hint" data-hint="Maximum number of tokens (words/subwords) in response. Higher = longer but slower">
+                                        Max Tokens
+                                    </span>
+                                </label>
+                                <span id="maxTokensValue" style="font-size: 11px; color: #075985; font-family: monospace;">300</span>
+                            </div>
+                            <input type="range" id="maxTokensSlider" min="50" max="1000" step="50" value="300"
+                                style="width: 100%; height: 6px; border-radius: 3px; background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 100%); outline: none; -webkit-appearance: none;">
+                            <div style="display: flex; justify-content: space-between; font-size: 9px; color: #64748b; margin-top: 4px;">
+                                <span>Short (50)</span>
+                                <span>Medium (300)</span>
+                                <span>Long (1000)</span>
+                            </div>
+                            <p style="font-size: 9px; color: #475569; margin-top: 4px; font-style: italic;">
+                                ~75 tokens ≈ 100 words. Higher values = slower responses
+                            </p>
+                        </div>
+                    </div>
+
+                    <!-- Advanced -->
+                    <div style="background: rgba(255, 255, 255, 0.5); padding: 12px; border-radius: 8px; margin-bottom: 15px;">
+                        <h5 style="font-size: 12px; color: #0c4a6e; margin: 0 0 12px 0;">🎲 Advanced</h5>
+
+                        <div style="margin-bottom: 0;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                                <label style="font-size: 11px; font-weight: bold; color: #0c4a6e;">
+                                    <span class="tooltip-hint" data-hint="Random seed for reproducible outputs. Leave empty for random behavior. Same seed + params = identical outputs">
+                                        Random Seed
+                                    </span>
+                                </label>
+                            </div>
+                            <div style="display: flex; gap: 8px;">
+                                <input type="number" id="seedInput" placeholder="None (random)"
+                                    style="flex: 1; padding: 6px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 11px; font-family: monospace;">
+                                <button id="useTimestampBtn" style="padding: 6px 12px; background: #0284c7; color: white; border: none; border-radius: 6px; font-size: 10px; cursor: pointer; white-space: nowrap;">
+                                    Use Timestamp
+                                </button>
+                            </div>
+                            <p style="font-size: 9px; color: #475569; margin-top: 4px; font-style: italic;">
+                                For reproducible outputs (same seed = same response)
+                            </p>
+                        </div>
+                    </div>
+
+                    <!-- Reset and Presets -->
+                    <div style="display: flex; gap: 8px; margin-top: 15px;">
+                        <button id="resetExperimentalBtn" class="action-btn" style="flex: 1; background: #6b7280; color: white; font-size: 11px; padding: 8px;">
+                            🔄 Reset All
+                        </button>
+                        <button id="presetDeterministicBtn" class="action-btn" style="flex: 1; background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%); color: white; font-size: 11px; padding: 8px;">
+                            🎯 Deterministic
+                        </button>
+                        <button id="presetCreativeBtn" class="action-btn" style="flex: 1; background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); color: white; font-size: 11px; padding: 8px;">
+                            🎨 Creative
+                        </button>
+                    </div>
+                </div>
+            </div>
+
             <div class="drop-zone" id="dropZone">
                 📂 Drop training file here or click to upload
                 <input type="file" id="fileInput" accept=".json,.jsonl">
@@ -1279,6 +1598,16 @@
         let creativityLevel = 0.7;  // Default temperature
         let ragInfluence = 0.5;     // Default RAG influence (0-1 scale)
         let minRAGTemperature = 0.4; // Minimum temperature when RAG results exist (prevents ignoring context)
+
+        // Experimental LLM Parameters
+        let expTopP = 0.9;           // Nucleus sampling
+        let expTopK = 0;             // Top-K sampling (0 = disabled)
+        let expFrequencyPenalty = 0.3;  // Discourage repetition
+        let expPresencePenalty = 0.0;   // Encourage diversity
+        let expRepetitionPenalty = 1.15; // MLC-specific repetition penalty
+        let expMaxTokens = 300;      // Maximum response length
+        let expSeed = null;          // Random seed for reproducibility
+        let autoAdjustParams = true; // Auto-adjust top_p and rep_penalty based on temperature
 
         // Starter knowledge - pre-seeded Q&A pairs for better initial experience
         const STARTER_KNOWLEDGE = [
@@ -1903,19 +2232,57 @@ Your personality:
                     console.log(`⚠️ Creativity too low (${creativityLevel.toFixed(1)}) - boosting to ${minRAGTemperature.toFixed(1)} for RAG context adherence (${statusText})`);
                 }
 
-                const adjustedTopP = Math.min(0.99, 0.7 + (effectiveTemperature - 0.7) * 0.2); // Scale top_p with creativity
-                const adjustedRepPenalty = Math.max(1.0, 1.3 - (effectiveTemperature - 0.7) * 0.3); // Lower penalty for high creativity
+                // Use experimental parameters with optional auto-adjustment
+                let finalTopP = expTopP;
+                let finalRepPenalty = expRepetitionPenalty;
 
-                console.log(`🎨 Generation params: temp=${effectiveTemperature.toFixed(1)}, top_p=${adjustedTopP.toFixed(2)}, rep_penalty=${adjustedRepPenalty.toFixed(2)}`);
+                if (autoAdjustParams) {
+                    // Auto-adjust top_p and repetition_penalty based on temperature
+                    finalTopP = Math.min(0.99, 0.7 + (effectiveTemperature - 0.7) * 0.2);
+                    finalRepPenalty = Math.max(1.0, 1.3 - (effectiveTemperature - 0.7) * 0.3);
+                    console.log(`🔄 Auto-adjusted: top_p=${finalTopP.toFixed(2)}, rep_penalty=${finalRepPenalty.toFixed(2)}`);
+                }
 
-                const reply = await engine.chat.completions.create({
+                console.log(`🎨 Generation params: temp=${effectiveTemperature.toFixed(1)}, top_p=${finalTopP.toFixed(2)}, top_k=${expTopK}, freq=${expFrequencyPenalty.toFixed(1)}, pres=${expPresencePenalty.toFixed(1)}, rep=${finalRepPenalty.toFixed(2)}, max=${expMaxTokens}${expSeed ? `, seed=${expSeed}` : ''}`);
+
+                // Build completion params object
+                const completionParams = {
                     messages: messages,
-                    max_tokens: 300, // Increased to prevent cutoff
-                    temperature: effectiveTemperature, // Use adjusted temperature
-                    top_p: adjustedTopP,
-                    repetition_penalty: adjustedRepPenalty, // Prevent repetition loops
-                    frequency_penalty: 0.3,   // Discourage repeating same phrases
-                });
+                    max_tokens: expMaxTokens,
+                    temperature: effectiveTemperature,
+                    top_p: finalTopP,
+                    repetition_penalty: finalRepPenalty,
+                    frequency_penalty: expFrequencyPenalty,
+                };
+
+                // Add optional parameters
+                if (expPresencePenalty > 0) {
+                    completionParams.presence_penalty = expPresencePenalty;
+                }
+                if (expTopK > 0) {
+                    completionParams.top_k = expTopK;
+                }
+                if (expSeed !== null) {
+                    completionParams.seed = expSeed;
+                }
+
+                const reply = await engine.chat.completions.create(completionParams);
+
+                // Update live preview footer to show actual used values (including auto-adjusted)
+                if (autoAdjustParams) {
+                    // Temporarily show actual used values in footer
+                    footerTopP.textContent = finalTopP.toFixed(2);
+                    footerRep.textContent = finalRepPenalty.toFixed(2);
+                    // Highlight them to show they were auto-adjusted
+                    footerTopP.closest('.param-item').classList.add('changed');
+                    footerRep.closest('.param-item').classList.add('changed');
+                    setTimeout(() => {
+                        footerTopP.closest('.param-item').classList.remove('changed');
+                        footerRep.closest('.param-item').classList.remove('changed');
+                    }, 1000);
+                } else {
+                    updateLivePreview();
+                }
 
                 // Extract response
                 let finalResponse = reply.choices[0].message.content.trim();
@@ -3144,13 +3511,21 @@ A: ${originalAnswer}
 Rewritten version (change words but NOT facts):
 Q: `;
 
-                    const response = await engine.chat.completions.create({
+                    // Use experimental parameters for enrichment (with boosted temperature)
+                    const enrichmentParams = {
                         messages: [{ role: 'user', content: singlePrompt }],
                         temperature: enrichmentTemp,  // Use boosted creativity
-                        max_tokens: 400,
-                        repetition_penalty: 1.4,
-                        frequency_penalty: 0.5  // Discourage copying exact phrases
-                    });
+                        max_tokens: Math.max(400, expMaxTokens), // At least 400 for enrichment
+                        repetition_penalty: autoAdjustParams ? 1.4 : expRepetitionPenalty,
+                        frequency_penalty: autoAdjustParams ? 0.5 : expFrequencyPenalty,
+                        top_p: autoAdjustParams ? 0.95 : expTopP
+                    };
+
+                    if (expPresencePenalty > 0 && !autoAdjustParams) {
+                        enrichmentParams.presence_penalty = expPresencePenalty;
+                    }
+
+                    const response = await engine.chat.completions.create(enrichmentParams);
 
                     const rawOutput = response.choices[0].message.content.trim();
                     console.log(`🤖 Variation ${i+1} raw output:`, rawOutput.substring(0, 100) + '...');
@@ -3853,11 +4228,346 @@ Q: `;
             return result;
         };
 
+        // ==================== EXPERIMENTAL PARAMETERS UI ====================
+
+        // Get all experimental parameter elements
+        const autoAdjustToggle = document.getElementById('autoAdjustToggle');
+        const topPSlider = document.getElementById('topPSlider');
+        const topKSlider = document.getElementById('topKSlider');
+        const freqPenaltySlider = document.getElementById('freqPenaltySlider');
+        const presPenaltySlider = document.getElementById('presPenaltySlider');
+        const repPenaltySlider = document.getElementById('repPenaltySlider');
+        const maxTokensSlider = document.getElementById('maxTokensSlider');
+        const seedInput = document.getElementById('seedInput');
+
+        // Value display elements
+        const topPValue = document.getElementById('topPValue');
+        const topKValue = document.getElementById('topKValue');
+        const freqPenaltyValue = document.getElementById('freqPenaltyValue');
+        const presPenaltyValue = document.getElementById('presPenaltyValue');
+        const repPenaltyValue = document.getElementById('repPenaltyValue');
+        const maxTokensValue = document.getElementById('maxTokensValue');
+
+        // Footer elements
+        const footerTemp = document.getElementById('footerTemp');
+        const footerTopP = document.getElementById('footerTopP');
+        const footerTopPAuto = document.getElementById('footerTopPAuto');
+        const footerTopK = document.getElementById('footerTopK');
+        const footerFreq = document.getElementById('footerFreq');
+        const footerPres = document.getElementById('footerPres');
+        const footerRep = document.getElementById('footerRep');
+        const footerRepAuto = document.getElementById('footerRepAuto');
+        const footerMax = document.getElementById('footerMax');
+        const footerSeed = document.getElementById('footerSeed');
+        const footerSeedItem = document.getElementById('footerSeedItem');
+
+        // Button elements
+        const resetExperimentalBtn = document.getElementById('resetExperimentalBtn');
+        const presetDeterministicBtn = document.getElementById('presetDeterministicBtn');
+        const presetCreativeBtn = document.getElementById('presetCreativeBtn');
+        const useTimestampBtn = document.getElementById('useTimestampBtn');
+        const toggleFooterBtn = document.getElementById('toggleFooterBtn');
+        const experimentalParamsHeader = document.getElementById('experimentalParamsHeader');
+        const experimentalParamsToggle = document.getElementById('experimentalParamsToggle');
+        const experimentalParamsContent = document.getElementById('experimentalParamsContent');
+
+        // Function to update live preview footer
+        function updateLivePreview(highlightParam = null) {
+            // Update temperature (from creativity slider)
+            footerTemp.textContent = creativityLevel.toFixed(1);
+
+            // Update top_p
+            footerTopP.textContent = expTopP.toFixed(2);
+            footerTopPAuto.style.display = autoAdjustParams ? 'inline' : 'none';
+
+            // Update top_k
+            footerTopK.textContent = expTopK === 0 ? '0' : expTopK;
+
+            // Update penalties
+            footerFreq.textContent = expFrequencyPenalty.toFixed(1);
+            footerPres.textContent = expPresencePenalty.toFixed(1);
+            footerRep.textContent = expRepetitionPenalty.toFixed(2);
+            footerRepAuto.style.display = autoAdjustParams ? 'inline' : 'none';
+
+            // Update max tokens
+            footerMax.textContent = expMaxTokens;
+
+            // Update seed
+            if (expSeed !== null) {
+                footerSeed.textContent = expSeed;
+                footerSeedItem.style.display = 'flex';
+            } else {
+                footerSeedItem.style.display = 'none';
+            }
+
+            // Highlight changed parameter
+            if (highlightParam) {
+                const paramElement = document.querySelector(`#footer${highlightParam}`);
+                if (paramElement) {
+                    const parentItem = paramElement.closest('.param-item');
+                    parentItem.classList.add('changed');
+                    setTimeout(() => parentItem.classList.remove('changed'), 500);
+                }
+            }
+        }
+
+        // Auto-adjust toggle
+        autoAdjustToggle.addEventListener('change', function() {
+            autoAdjustParams = this.checked;
+            console.log(`🔄 Auto-adjust: ${autoAdjustParams ? 'enabled' : 'disabled'}`);
+            updateLivePreview();
+        });
+
+        // Top-P slider
+        topPSlider.addEventListener('input', function() {
+            expTopP = parseFloat(this.value);
+            topPValue.textContent = expTopP.toFixed(2);
+            updateLivePreview('TopP');
+            console.log(`🎯 Top-P: ${expTopP.toFixed(2)}`);
+        });
+
+        // Top-K slider
+        topKSlider.addEventListener('input', function() {
+            expTopK = parseInt(this.value);
+            topKValue.textContent = expTopK === 0 ? '0 (disabled)' : expTopK;
+            updateLivePreview('TopK');
+            console.log(`🔢 Top-K: ${expTopK}`);
+        });
+
+        // Frequency Penalty slider
+        freqPenaltySlider.addEventListener('input', function() {
+            expFrequencyPenalty = parseFloat(this.value);
+            freqPenaltyValue.textContent = expFrequencyPenalty.toFixed(1);
+            updateLivePreview('Freq');
+            console.log(`📊 Frequency Penalty: ${expFrequencyPenalty.toFixed(1)}`);
+        });
+
+        // Presence Penalty slider
+        presPenaltySlider.addEventListener('input', function() {
+            expPresencePenalty = parseFloat(this.value);
+            presPenaltyValue.textContent = expPresencePenalty.toFixed(1);
+            updateLivePreview('Pres');
+            console.log(`✨ Presence Penalty: ${expPresencePenalty.toFixed(1)}`);
+        });
+
+        // Repetition Penalty slider
+        repPenaltySlider.addEventListener('input', function() {
+            expRepetitionPenalty = parseFloat(this.value);
+            repPenaltyValue.textContent = expRepetitionPenalty.toFixed(2);
+            updateLivePreview('Rep');
+            console.log(`🔁 Repetition Penalty: ${expRepetitionPenalty.toFixed(2)}`);
+        });
+
+        // Max Tokens slider
+        maxTokensSlider.addEventListener('input', function() {
+            expMaxTokens = parseInt(this.value);
+            maxTokensValue.textContent = expMaxTokens;
+            updateLivePreview('Max');
+            console.log(`📏 Max Tokens: ${expMaxTokens}`);
+        });
+
+        // Seed input
+        seedInput.addEventListener('input', function() {
+            const value = this.value.trim();
+            expSeed = value === '' ? null : parseInt(value);
+            updateLivePreview('Seed');
+            console.log(`🎲 Seed: ${expSeed === null ? 'none (random)' : expSeed}`);
+        });
+
+        // Use Timestamp button
+        useTimestampBtn.addEventListener('click', function() {
+            const timestamp = Date.now();
+            seedInput.value = timestamp;
+            expSeed = timestamp;
+            updateLivePreview('Seed');
+            console.log(`🎲 Seed set to timestamp: ${timestamp}`);
+        });
+
+        // Reset button
+        resetExperimentalBtn.addEventListener('click', function() {
+            // Reset to defaults
+            autoAdjustParams = true;
+            expTopP = 0.9;
+            expTopK = 0;
+            expFrequencyPenalty = 0.3;
+            expPresencePenalty = 0.0;
+            expRepetitionPenalty = 1.15;
+            expMaxTokens = 300;
+            expSeed = null;
+
+            // Update UI
+            autoAdjustToggle.checked = true;
+            topPSlider.value = 0.9;
+            topPValue.textContent = '0.9';
+            topKSlider.value = 0;
+            topKValue.textContent = '0 (disabled)';
+            freqPenaltySlider.value = 0.3;
+            freqPenaltyValue.textContent = '0.3';
+            presPenaltySlider.value = 0.0;
+            presPenaltyValue.textContent = '0.0';
+            repPenaltySlider.value = 1.15;
+            repPenaltyValue.textContent = '1.15';
+            maxTokensSlider.value = 300;
+            maxTokensValue.textContent = '300';
+            seedInput.value = '';
+
+            updateLivePreview();
+            console.log('🔄 Reset all experimental parameters to defaults');
+        });
+
+        // Deterministic preset
+        presetDeterministicBtn.addEventListener('click', function() {
+            autoAdjustParams = false;
+            creativityLevel = 0.1;
+            expTopP = 0.5;
+            expTopK = 5;
+            expFrequencyPenalty = 0.0;
+            expPresencePenalty = 0.0;
+            expRepetitionPenalty = 1.0;
+            expMaxTokens = 200;
+            expSeed = 12345;
+
+            // Update UI
+            autoAdjustToggle.checked = false;
+            creativitySlider.value = 0.1;
+            creativityValue.textContent = '0.1';
+            topPSlider.value = 0.5;
+            topPValue.textContent = '0.50';
+            topKSlider.value = 5;
+            topKValue.textContent = '5';
+            freqPenaltySlider.value = 0.0;
+            freqPenaltyValue.textContent = '0.0';
+            presPenaltySlider.value = 0.0;
+            presPenaltyValue.textContent = '0.0';
+            repPenaltySlider.value = 1.0;
+            repPenaltyValue.textContent = '1.00';
+            maxTokensSlider.value = 200;
+            maxTokensValue.textContent = '200';
+            seedInput.value = '12345';
+
+            updateLivePreview();
+            console.log('🎯 Applied DETERMINISTIC preset');
+        });
+
+        // Creative preset
+        presetCreativeBtn.addEventListener('click', function() {
+            autoAdjustParams = false;
+            creativityLevel = 1.2;
+            expTopP = 0.95;
+            expTopK = 0;
+            expFrequencyPenalty = 0.1;
+            expPresencePenalty = 0.5;
+            expRepetitionPenalty = 1.4;
+            expMaxTokens = 500;
+            expSeed = null;
+
+            // Update UI
+            autoAdjustToggle.checked = false;
+            creativitySlider.value = 1.2;
+            creativityValue.textContent = '1.2';
+            topPSlider.value = 0.95;
+            topPValue.textContent = '0.95';
+            topKSlider.value = 0;
+            topKValue.textContent = '0 (disabled)';
+            freqPenaltySlider.value = 0.1;
+            freqPenaltyValue.textContent = '0.1';
+            presPenaltySlider.value = 0.5;
+            presPenaltyValue.textContent = '0.5';
+            repPenaltySlider.value = 1.4;
+            repPenaltyValue.textContent = '1.40';
+            maxTokensSlider.value = 500;
+            maxTokensValue.textContent = '500';
+            seedInput.value = '';
+
+            updateLivePreview();
+            console.log('🎨 Applied CREATIVE preset');
+        });
+
+        // Toggle footer visibility
+        let footerVisible = true;
+        toggleFooterBtn.addEventListener('click', function() {
+            footerVisible = !footerVisible;
+            const footer = document.getElementById('paramPreviewFooter');
+            if (footerVisible) {
+                footer.style.display = 'flex';
+                this.textContent = 'Hide';
+            } else {
+                footer.style.display = 'none';
+                this.textContent = 'Show';
+            }
+        });
+
+        // Toggle experimental params panel
+        experimentalParamsHeader.addEventListener('click', function() {
+            const isExpanded = experimentalParamsContent.style.display === 'block';
+            experimentalParamsContent.style.display = isExpanded ? 'none' : 'block';
+            experimentalParamsToggle.textContent = isExpanded ? '▶' : '▼';
+        });
+
+        // Update creativity slider to also update live preview
+        creativitySlider.addEventListener('input', function() {
+            creativityLevel = parseFloat(this.value);
+            creativityValue.textContent = creativityLevel.toFixed(1);
+            updateLivePreview('Temp');
+
+            // Log current temperature status
+            let statusText = creativityLevel < 0.4 ? 'Conservative' :
+                           creativityLevel > 1.0 ? 'Very Creative' : 'Balanced';
+            console.log(`🎨 Creativity (temperature): ${creativityLevel.toFixed(1)} (${statusText})`);
+        });
+
+        // Initialize live preview on page load
+        updateLivePreview();
+
+        console.log('🧪 Experimental Parameters UI initialized!');
+        console.log(`📊 Current params: temp=${creativityLevel}, top_p=${expTopP}, top_k=${expTopK}, freq=${expFrequencyPenalty}, pres=${expPresencePenalty}, rep=${expRepetitionPenalty}, max=${expMaxTokens}`);
+
         // Initialize rocket display
         (async function() {
             if (!learningDB) await initLearningDB();
             await updateAnalytics();
         })();
     </script>
+
+    <!-- Live Parameter Preview Footer -->
+    <div class="param-preview-footer" id="paramPreviewFooter">
+        <div class="param-group">
+            <div class="param-item tooltip-hint" data-hint="Temperature (Creativity Level)">
+                <span class="param-label">temp:</span>
+                <span class="param-value" id="footerTemp">0.7</span>
+            </div>
+            <div class="param-item tooltip-hint" data-hint="Top-P (Nucleus Sampling)">
+                <span class="param-label">top_p:</span>
+                <span class="param-value" id="footerTopP">0.9</span>
+                <span class="param-value auto" id="footerTopPAuto" style="display: none;">(auto)</span>
+            </div>
+            <div class="param-item tooltip-hint" data-hint="Top-K (disabled if 0)">
+                <span class="param-label">top_k:</span>
+                <span class="param-value" id="footerTopK">0</span>
+            </div>
+            <div class="param-item tooltip-hint" data-hint="Frequency Penalty">
+                <span class="param-label">freq:</span>
+                <span class="param-value" id="footerFreq">0.3</span>
+            </div>
+            <div class="param-item tooltip-hint" data-hint="Presence Penalty">
+                <span class="param-label">pres:</span>
+                <span class="param-value" id="footerPres">0.0</span>
+            </div>
+            <div class="param-item tooltip-hint" data-hint="Repetition Penalty (MLC)">
+                <span class="param-label">rep:</span>
+                <span class="param-value" id="footerRep">1.15</span>
+                <span class="param-value auto" id="footerRepAuto" style="display: none;">(auto)</span>
+            </div>
+            <div class="param-item tooltip-hint" data-hint="Max Tokens (response length)">
+                <span class="param-label">max:</span>
+                <span class="param-value" id="footerMax">300</span>
+            </div>
+            <div class="param-item tooltip-hint" data-hint="Random Seed (none = random)" id="footerSeedItem" style="display: none;">
+                <span class="param-label">seed:</span>
+                <span class="param-value" id="footerSeed">-</span>
+            </div>
+        </div>
+        <button class="toggle-footer-btn" id="toggleFooterBtn">Hide</button>
+    </div>
 </body>
 </html>
