@@ -921,6 +921,30 @@
         </div>
     </div>
 
+    <!-- Enrichment Review Modal -->
+    <div class="debug-modal" id="enrichmentModal" style="display: none;">
+        <div class="debug-modal-content" style="max-width: 800px; max-height: 90%; overflow: auto;">
+            <div class="dialog-header">
+                <h3>✨ Review Enrichments</h3>
+                <button class="close-btn" id="closeEnrichmentBtn">×</button>
+            </div>
+            <div id="enrichmentContent" style="padding: 20px; max-height: 70vh; overflow-y: auto;">
+                <div style="text-align: center; padding: 40px; color: #666;">
+                    <div style="font-size: 32px; margin-bottom: 10px;">✨</div>
+                    <p>Generating variations...</p>
+                </div>
+            </div>
+            <div style="padding: 15px 20px; border-top: 1px solid #e5e7eb; background: #f9fafb; display: flex; justify-content: flex-end; gap: 10px;">
+                <button id="cancelEnrichmentBtn" class="action-btn" style="background: #6b7280; color: white; padding: 10px 20px;">
+                    Cancel
+                </button>
+                <button id="saveEnrichmentsBtn" class="action-btn" style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; padding: 10px 20px;">
+                    💾 Save Selected
+                </button>
+            </div>
+        </div>
+    </div>
+
     <!-- RAG Inspector Panel -->
     <div id="ragInspector" style="display: none; position: fixed; bottom: 60px; right: 20px; width: 500px; max-height: 400px; background: rgba(255, 255, 255, 0.98); border: 2px solid #8b5cf6; border-radius: 12px; box-shadow: 0 8px 32px rgba(0,0,0,0.3); z-index: 9999; overflow: hidden;">
         <div style="background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%); color: white; padding: 10px 15px; font-weight: bold; display: flex; justify-content: space-between; align-items: center;">
@@ -1494,10 +1518,30 @@
                     showLearningNotification('👎 Noted. This will be excluded from search.');
                 };
 
+                // Enrich Button - Generate variations
+                const enrichBtn = document.createElement('button');
+                enrichBtn.className = 'rating-btn';
+                enrichBtn.innerHTML = '✨';
+                enrichBtn.title = 'Generate Q&A variations';
+                enrichBtn.style.marginLeft = '10px';
+                enrichBtn.style.background = 'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)';
+                enrichBtn.style.color = 'white';
+                enrichBtn.onclick = async () => {
+                    enrichBtn.disabled = true;
+                    enrichBtn.innerHTML = '⏳';
+                    try {
+                        await generateAndShowEnrichments(questionContext, displayContent);
+                    } finally {
+                        enrichBtn.disabled = false;
+                        enrichBtn.innerHTML = '✨';
+                    }
+                };
+
                 ratingDiv.appendChild(star1);
                 ratingDiv.appendChild(star2);
                 ratingDiv.appendChild(star3);
                 ratingDiv.appendChild(thumbsDown);
+                ratingDiv.appendChild(enrichBtn);
                 messageDiv.appendChild(ratingDiv);
             }
 
@@ -2856,6 +2900,253 @@ Made with 🐱 and 🌙
             }
         }
 
+        // Enrichment generation function
+        async function generateEnrichments(originalQuestion, originalAnswer) {
+            console.log('🎨 Generating enrichments for:', originalQuestion);
+
+            const enrichmentPrompt = `You are a Q&A variation generator. Create exactly 3 variations of this question-answer pair. Each variation should:
+- Keep the SAME core meaning and facts
+- Use different wording or phrasing
+- Be concise and clear
+- Stay strictly on topic - NO hallucinations or new information
+
+Original Q&A:
+Q: ${originalQuestion}
+A: ${originalAnswer}
+
+Generate exactly 3 variations in this EXACT format:
+
+VARIATION 1:
+Q: [alternative question wording]
+A: [alternative answer wording]
+
+VARIATION 2:
+Q: [alternative question wording]
+A: [alternative answer wording]
+
+VARIATION 3:
+Q: [alternative question wording]
+A: [alternative answer wording]
+
+IMPORTANT: Only output the 3 variations above. Do NOT add explanations, comments, or extra text.`;
+
+            try {
+                // Generate variations using TinyLlama
+                const response = await engine.chat.completions.create({
+                    messages: [{ role: 'user', content: enrichmentPrompt }],
+                    temperature: 0.8,
+                    max_tokens: 500,
+                    repetition_penalty: 1.2
+                });
+
+                const rawOutput = response.choices[0].message.content;
+                console.log('🤖 Raw enrichment output:', rawOutput);
+
+                // Forgiving parser - extract Q&A pairs from any format
+                const variations = [];
+                const lines = rawOutput.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+
+                let currentVariation = null;
+                let currentQuestion = null;
+                let currentAnswer = null;
+
+                for (let i = 0; i < lines.length; i++) {
+                    const line = lines[i];
+
+                    // Match variation headers (flexible)
+                    if (/^(VARIATION|Variation|VAR\.?)\s*[:\-#]?\s*[123]/i.test(line)) {
+                        // Save previous variation if exists
+                        if (currentQuestion && currentAnswer) {
+                            variations.push({ question: currentQuestion, answer: currentAnswer });
+                        }
+                        currentQuestion = null;
+                        currentAnswer = null;
+                        continue;
+                    }
+
+                    // Match question lines
+                    if (/^Q[:\-]?\s*/i.test(line)) {
+                        currentQuestion = line.replace(/^Q[:\-]?\s*/i, '').trim();
+                        continue;
+                    }
+
+                    // Match answer lines
+                    if (/^A[:\-]?\s*/i.test(line)) {
+                        currentAnswer = line.replace(/^A[:\-]?\s*/i, '').trim();
+
+                        // Collect multi-line answers
+                        while (i + 1 < lines.length && !/^(Q[:\-]|A[:\-]|VARIATION)/i.test(lines[i + 1])) {
+                            i++;
+                            currentAnswer += ' ' + lines[i].trim();
+                        }
+
+                        // Save complete Q&A pair
+                        if (currentQuestion && currentAnswer) {
+                            variations.push({ question: currentQuestion, answer: currentAnswer });
+                            currentQuestion = null;
+                            currentAnswer = null;
+                        }
+                        continue;
+                    }
+                }
+
+                // Save last variation if incomplete parse
+                if (currentQuestion && currentAnswer) {
+                    variations.push({ question: currentQuestion, answer: currentAnswer });
+                }
+
+                // Validation and cleanup
+                const validVariations = variations
+                    .filter(v => v.question && v.answer)
+                    .filter(v => v.question.length >= 5 && v.answer.length >= 10)
+                    .filter(v => v.question !== originalQuestion || v.answer !== originalAnswer)
+                    .slice(0, 3);
+
+                console.log(`✅ Parsed ${validVariations.length} valid variations`);
+
+                // If we didn't get enough variations, pad with slight modifications
+                while (validVariations.length < 3) {
+                    const index = validVariations.length + 1;
+                    validVariations.push({
+                        question: `${originalQuestion} (variation ${index})`,
+                        answer: originalAnswer
+                    });
+                }
+
+                return validVariations;
+            } catch (error) {
+                console.error('❌ Error generating enrichments:', error);
+                throw error;
+            }
+        }
+
+        // Show enrichments in modal
+        let currentEnrichments = [];
+        let currentEnrichmentContext = { question: '', answer: '' };
+
+        async function generateAndShowEnrichments(question, answer) {
+            // Show modal with loading state
+            const modal = document.getElementById('enrichmentModal');
+            const content = document.getElementById('enrichmentContent');
+            content.innerHTML = `
+                <div style="text-align: center; padding: 40px; color: #666;">
+                    <div style="font-size: 32px; margin-bottom: 10px;">✨</div>
+                    <p>Generating variations...</p>
+                    <p style="font-size: 12px; margin-top: 10px;">This may take a few seconds</p>
+                </div>
+            `;
+            modal.style.display = 'flex';
+
+            try {
+                // Generate enrichments
+                const variations = await generateEnrichments(question, answer);
+                currentEnrichments = variations.map((v, i) => ({ ...v, approved: true, id: i }));
+                currentEnrichmentContext = { question, answer };
+
+                // Display variations
+                let html = `
+                    <div style="background: #f0fdf4; border: 1px solid #86efac; border-radius: 8px; padding: 15px; margin-bottom: 20px;">
+                        <div style="font-weight: bold; color: #166534; margin-bottom: 8px;">📝 Original Q&A</div>
+                        <div style="margin-bottom: 8px;"><strong>Q:</strong> ${question}</div>
+                        <div><strong>A:</strong> ${answer}</div>
+                    </div>
+                    <div style="font-weight: bold; margin-bottom: 15px; color: #374151;">✨ Generated Variations:</div>
+                `;
+
+                currentEnrichments.forEach((variation, i) => {
+                    html += `
+                        <div class="enrichment-variation" data-id="${i}" style="
+                            border: 2px solid ${variation.approved ? '#10b981' : '#ef4444'};
+                            border-radius: 8px;
+                            padding: 15px;
+                            margin-bottom: 15px;
+                            background: ${variation.approved ? '#f0fdf4' : '#fef2f2'};
+                            transition: all 0.2s;
+                        ">
+                            <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 10px;">
+                                <div style="font-weight: bold; color: #374151;">Variation ${i + 1}</div>
+                                <button class="toggle-approval-btn" data-id="${i}" style="
+                                    background: ${variation.approved ? '#10b981' : '#ef4444'};
+                                    color: white;
+                                    border: none;
+                                    border-radius: 6px;
+                                    padding: 6px 12px;
+                                    cursor: pointer;
+                                    font-size: 14px;
+                                    transition: all 0.2s;
+                                ">
+                                    ${variation.approved ? '✓ Approved' : '✗ Rejected'}
+                                </button>
+                            </div>
+                            <div style="margin-bottom: 8px;"><strong>Q:</strong> ${variation.question}</div>
+                            <div><strong>A:</strong> ${variation.answer}</div>
+                        </div>
+                    `;
+                });
+
+                content.innerHTML = html;
+
+                // Add event listeners for approval toggle
+                document.querySelectorAll('.toggle-approval-btn').forEach(btn => {
+                    btn.addEventListener('click', function() {
+                        const id = parseInt(this.getAttribute('data-id'));
+                        currentEnrichments[id].approved = !currentEnrichments[id].approved;
+
+                        // Update UI
+                        const variation = document.querySelector(`.enrichment-variation[data-id="${id}"]`);
+                        const isApproved = currentEnrichments[id].approved;
+
+                        variation.style.border = `2px solid ${isApproved ? '#10b981' : '#ef4444'}`;
+                        variation.style.background = isApproved ? '#f0fdf4' : '#fef2f2';
+                        this.style.background = isApproved ? '#10b981' : '#ef4444';
+                        this.innerHTML = isApproved ? '✓ Approved' : '✗ Rejected';
+                    });
+                });
+
+            } catch (error) {
+                content.innerHTML = `
+                    <div style="text-align: center; padding: 40px; color: #ef4444;">
+                        <div style="font-size: 32px; margin-bottom: 10px;">⚠️</div>
+                        <p><strong>Error generating enrichments</strong></p>
+                        <p style="font-size: 12px; margin-top: 10px;">${error.message}</p>
+                    </div>
+                `;
+            }
+        }
+
+        // Save approved enrichments
+        async function saveApprovedEnrichments() {
+            const approved = currentEnrichments.filter(e => e.approved);
+
+            if (approved.length === 0) {
+                alert('No variations approved. Please approve at least one variation.');
+                return;
+            }
+
+            try {
+                // Save each approved variation
+                for (const variation of approved) {
+                    await saveQAPair(variation.question, variation.answer, 'star2', {
+                        source: 'enrichment',
+                        original_question: currentEnrichmentContext.question,
+                        original_answer: currentEnrichmentContext.answer
+                    });
+                }
+
+                // Close modal
+                document.getElementById('enrichmentModal').style.display = 'none';
+
+                // Show notification
+                const stats = await getLearningStats();
+                showLearningNotification(`✨ Saved ${approved.length} enrichment${approved.length > 1 ? 's' : ''}! (${stats.total} total)`);
+
+                console.log(`✅ Saved ${approved.length} enrichments to database`);
+            } catch (error) {
+                console.error('❌ Error saving enrichments:', error);
+                alert('Failed to save enrichments. See console for details.');
+            }
+        }
+
         // View Database Button
         viewDatabaseBtn.addEventListener('click', async function() {
             await loadAndDisplayDatabase();
@@ -3011,6 +3302,19 @@ Made with 🐱 and 🌙
 
         document.getElementById('closeDatabaseBtn').addEventListener('click', function() {
             document.getElementById('databaseModal').style.display = 'none';
+        });
+
+        // Enrichment Modal Event Listeners
+        document.getElementById('closeEnrichmentBtn').addEventListener('click', function() {
+            document.getElementById('enrichmentModal').style.display = 'none';
+        });
+
+        document.getElementById('cancelEnrichmentBtn').addEventListener('click', function() {
+            document.getElementById('enrichmentModal').style.display = 'none';
+        });
+
+        document.getElementById('saveEnrichmentsBtn').addEventListener('click', async function() {
+            await saveApprovedEnrichments();
         });
 
         // RAG Inspector Toggle
