@@ -676,6 +676,47 @@
             transform: translateY(-2px);
         }
 
+        /* Range Slider Styling */
+        input[type="range"] {
+            -webkit-appearance: none;
+            appearance: none;
+            cursor: pointer;
+        }
+
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            background: white;
+            border: 3px solid #f59e0b;
+            cursor: pointer;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+            transition: all 0.2s;
+        }
+
+        input[type="range"]::-webkit-slider-thumb:hover {
+            transform: scale(1.2);
+            border-color: #d97706;
+        }
+
+        input[type="range"]::-moz-range-thumb {
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            background: white;
+            border: 3px solid #f59e0b;
+            cursor: pointer;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+            transition: all 0.2s;
+        }
+
+        input[type="range"]::-moz-range-thumb:hover {
+            transform: scale(1.2);
+            border-color: #d97706;
+        }
+
         .export-btn {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
@@ -875,6 +916,77 @@
                     </button>
                     <button id="toggleConsoleLogBtn" class="action-btn" style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; font-size: 11px; padding: 8px 12px;">
                         📜 Console Viewer
+                    </button>
+                </div>
+            </div>
+
+            <!-- ADVANCED CONTROLS SECTION -->
+            <div style="margin-top: 20px; padding: 15px; background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%); border-radius: 10px; border-left: 4px solid #f59e0b;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; cursor: pointer;" id="advancedControlsHeader">
+                    <h4 style="font-size: 14px; margin: 0; color: #78350f;">⚙️ Advanced Controls</h4>
+                    <span id="advancedControlsToggle" style="font-size: 18px; color: #78350f;">▼</span>
+                </div>
+                <div id="advancedControlsContent" style="display: block;">
+                    <p style="font-size: 11px; color: #92400e; margin-bottom: 15px; line-height: 1.4;">
+                        Fine-tune AI behavior: creativity level, RAG influence, and system instructions.
+                    </p>
+
+                    <!-- Creativity Slider -->
+                    <div style="margin-bottom: 20px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                            <label style="font-size: 12px; font-weight: bold; color: #78350f;">🎨 Creativity Level</label>
+                            <span id="creativityValue" style="font-size: 12px; color: #92400e; font-family: monospace;">0.7</span>
+                        </div>
+                        <input type="range" id="creativitySlider" min="0.1" max="1.5" step="0.1" value="0.7"
+                            style="width: 100%; height: 6px; border-radius: 3px; background: linear-gradient(90deg, #3b82f6 0%, #f59e0b 50%, #ef4444 100%); outline: none; -webkit-appearance: none;">
+                        <div style="display: flex; justify-content: space-between; font-size: 10px; color: #92400e; margin-top: 4px;">
+                            <span>Conservative</span>
+                            <span>Balanced</span>
+                            <span>Creative</span>
+                        </div>
+                        <p style="font-size: 10px; color: #92400e; margin-top: 6px; font-style: italic;">
+                            Controls randomness & variety in responses
+                        </p>
+                    </div>
+
+                    <!-- RAG Influence Slider -->
+                    <div style="margin-bottom: 20px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                            <label style="font-size: 12px; font-weight: bold; color: #78350f;">🧠 RAG Influence</label>
+                            <span id="ragInfluenceValue" style="font-size: 12px; color: #92400e; font-family: monospace;">0.5</span>
+                        </div>
+                        <input type="range" id="ragInfluenceSlider" min="0" max="1" step="0.1" value="0.5"
+                            style="width: 100%; height: 6px; border-radius: 3px; background: linear-gradient(90deg, #8b5cf6 0%, #10b981 100%); outline: none; -webkit-appearance: none;">
+                        <div style="display: flex; justify-content: space-between; font-size: 10px; color: #92400e; margin-top: 4px;">
+                            <span>Pure LLM</span>
+                            <span>Blended</span>
+                            <span>RAG Only</span>
+                        </div>
+                        <p style="font-size: 10px; color: #92400e; margin-top: 6px; font-style: italic;">
+                            0 = Ignore database | 0.5 = Balance | 1 = Only use stored answers
+                        </p>
+                    </div>
+
+                    <!-- System Prompt Editor -->
+                    <div style="margin-bottom: 15px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                            <label style="font-size: 12px; font-weight: bold; color: #78350f;">📝 System Prompt</label>
+                            <button id="resetPromptBtn" style="font-size: 10px; padding: 4px 8px; background: #f59e0b; color: white; border: none; border-radius: 4px; cursor: pointer;">
+                                🔄 Reset
+                            </button>
+                        </div>
+                        <textarea id="systemPromptEditor"
+                            style="width: 100%; min-height: 80px; padding: 8px; font-size: 11px; font-family: monospace; border: 2px solid #fbbf24; border-radius: 6px; background: #fffbeb; color: #78350f; resize: vertical;"
+                            placeholder="Enter system instructions..."></textarea>
+                        <p style="font-size: 10px; color: #92400e; margin-top: 6px; font-style: italic;">
+                            Changes apply immediately to next message
+                        </p>
+                    </div>
+
+                    <!-- Save Button -->
+                    <button id="saveAdvancedSettings" class="action-btn"
+                        style="width: 100%; background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; font-size: 12px; padding: 10px; border: none; border-radius: 6px; cursor: pointer; font-weight: bold;">
+                        💾 Save Settings
                     </button>
                 </div>
             </div>
@@ -1131,8 +1243,15 @@
         const STORE_NAME = 'qa_pairs';
 
         // Current system prompt for RLHF tracking
-        let currentSystemPrompt = "CRITICAL: You MUST answer in English ONLY. Never use German or any other language.\n\nYou are a helpful, friendly cat AI assistant who lives on the moon. Keep responses concise, fun, and informative.";
+        // Default system prompt
+        const DEFAULT_SYSTEM_PROMPT = "CRITICAL: You MUST answer in English ONLY. Never use German or any other language.\n\nYou are a helpful, friendly cat AI assistant who lives on the moon. Keep responses concise, fun, and informative.";
+
+        let currentSystemPrompt = DEFAULT_SYSTEM_PROMPT;
         let lastRAGResults = [];
+
+        // Advanced control settings
+        let creativityLevel = 0.7;  // Default temperature
+        let ragInfluence = 0.5;     // Default RAG influence (0-1 scale)
 
         // Starter knowledge - pre-seeded Q&A pairs for better initial experience
         const STARTER_KNOWLEDGE = [
@@ -1617,8 +1736,46 @@
             chatInput.disabled = true;
 
             try {
-                // Search for similar questions using ultra-clever enhanced matching
-                const similarPairs = await findSimilarQuestionsEnhanced(userMessage, 3);
+                // ========================================
+                // RAG INFLUENCE CONTROL
+                // ========================================
+                let similarPairs = [];
+                let ragSkipped = false;
+
+                if (ragInfluence === 0) {
+                    // Pure LLM mode - skip RAG entirely
+                    console.log('🔮 RAG INFLUENCE: 0.0 - Pure LLM mode (no database search)');
+                    similarPairs = [];
+                    ragSkipped = true;
+                } else if (ragInfluence === 1.0) {
+                    // RAG-only mode - return stored answer directly if good match exists
+                    console.log('📚 RAG INFLUENCE: 1.0 - RAG-only mode (database-first)');
+                    similarPairs = await findSimilarQuestionsEnhanced(userMessage, 1);
+
+                    if (similarPairs.length > 0 && similarPairs[0].similarity > 0.7) {
+                        // High confidence match - return directly
+                        console.log(`✅ High confidence match (${similarPairs[0].similarity.toFixed(3)}) - returning stored answer`);
+                        addMessage(similarPairs[0].answer, 'assistant', userMessage);
+                        conversationHistory.push({ role: 'user', content: userMessage });
+                        conversationHistory.push({ role: 'assistant', content: similarPairs[0].answer });
+                        isGenerating = false;
+                        sendBtn.disabled = false;
+                        chatInput.disabled = false;
+                        return;
+                    } else {
+                        // No good match in RAG-only mode
+                        addMessage("I don't have information about that in my knowledge base. Try lowering RAG influence to let me generate an answer, or teach me by chatting!", 'assistant');
+                        isGenerating = false;
+                        sendBtn.disabled = false;
+                        chatInput.disabled = false;
+                        return;
+                    }
+                } else {
+                    // Blended mode - scale RAG results by influence
+                    const maxResults = Math.max(1, Math.ceil(ragInfluence * 10));
+                    console.log(`🧠 RAG INFLUENCE: ${ragInfluence.toFixed(1)} - Blended mode (max ${maxResults} results)`);
+                    similarPairs = await findSimilarQuestionsEnhanced(userMessage, maxResults);
+                }
 
                 // Debug: Check if embeddings are working
                 if (!embeddingsReady) {
@@ -1626,7 +1783,7 @@
                 }
 
                 // Build system prompt with RAG examples
-                let systemPrompt = "CRITICAL: You MUST answer in English ONLY. Never use German or any other language.\n\nYou are a helpful, friendly cat AI assistant who lives on the moon. Keep responses concise, fun, and informative.";
+                let systemPrompt = currentSystemPrompt;
 
                 console.log('\n💬 PROMPT STRATEGY:');
                 if (similarPairs.length > 0) {
@@ -1637,19 +1794,35 @@
                     if (highSimilarity) {
                         // High confidence - use 1 example
                         systemPrompt += `\n\nHere's how you answered a very similar question:\nQ: "${bestMatch.question}"\nA: "${bestMatch.answer}"`;
-                        systemPrompt += '\n\nAnswer the current question in the same style and tone.';
+
+                        // Adjust instruction based on RAG influence
+                        if (ragInfluence > 0.7) {
+                            systemPrompt += '\n\nIMPORTANT: Answer ONLY based on the information above. Stay very close to the example.';
+                        } else if (ragInfluence < 0.3) {
+                            systemPrompt += '\n\nUse this as a loose reference, but feel free to elaborate or add your own insights.';
+                        } else {
+                            systemPrompt += '\n\nAnswer the current question in the same style and tone.';
+                        }
                         console.log(`   ✅ HIGH CONFIDENCE (${bestMatch.similarity.toFixed(3)})`);
                         console.log(`   Strategy: One-shot learning with best match`);
                         console.log(`   Context Q: "${bestMatch.question}"`);
                         console.log(`   Context A: "${bestMatch.answer.substring(0, 80)}${bestMatch.answer.length > 80 ? '...' : ''}"`);
                     } else {
                         // Medium/low confidence - use 2-3 examples for more context
-                        const exampleCount = Math.min(similarPairs.length, 3);
+                        const exampleCount = Math.min(similarPairs.length, ragInfluence > 0.6 ? 5 : 3);
                         systemPrompt += `\n\nHere are relevant examples from your knowledge:`;
                         for (let i = 0; i < exampleCount; i++) {
                             systemPrompt += `\n\nExample ${i+1}:\nQ: "${similarPairs[i].question}"\nA: "${similarPairs[i].answer}"`;
                         }
-                        systemPrompt += '\n\nUse these as reference to answer the current question. Stay consistent with this friendly, cat-themed style.';
+
+                        // Adjust instruction based on RAG influence
+                        if (ragInfluence > 0.7) {
+                            systemPrompt += '\n\nIMPORTANT: Base your answer PRIMARILY on these examples. Stay close to the facts and style shown above.';
+                        } else if (ragInfluence < 0.3) {
+                            systemPrompt += '\n\nUse these as inspiration, but feel free to be creative and add your own perspective.';
+                        } else {
+                            systemPrompt += '\n\nUse these as reference to answer the current question. Stay consistent with this friendly, cat-themed style.';
+                        }
                         console.log(`   ✅ MEDIUM CONFIDENCE (best: ${bestMatch.similarity.toFixed(3)})`);
                         console.log(`   Strategy: Multi-shot with ${exampleCount} examples for broader context`);
                         similarPairs.slice(0, exampleCount).forEach((p, i) => {
@@ -1687,12 +1860,18 @@ Your personality:
                 ];
 
                 // Generate response with TinyLlama
+                // Use creativity level from advanced controls
+                const adjustedTopP = Math.min(0.99, 0.7 + (creativityLevel - 0.7) * 0.2); // Scale top_p with creativity
+                const adjustedRepPenalty = Math.max(1.0, 1.3 - (creativityLevel - 0.7) * 0.3); // Lower penalty for high creativity
+
+                console.log(`🎨 Generation params: temp=${creativityLevel.toFixed(1)}, top_p=${adjustedTopP.toFixed(2)}, rep_penalty=${adjustedRepPenalty.toFixed(2)}`);
+
                 const reply = await engine.chat.completions.create({
                     messages: messages,
                     max_tokens: 300, // Increased to prevent cutoff
-                    temperature: 0.7,
-                    top_p: 0.9,
-                    repetition_penalty: 1.15, // Prevent repetition loops
+                    temperature: creativityLevel, // Use slider value
+                    top_p: adjustedTopP,
+                    repetition_penalty: adjustedRepPenalty, // Prevent repetition loops
                     frequency_penalty: 0.3,   // Discourage repeating same phrases
                 });
 
@@ -3409,6 +3588,98 @@ Variation 1: Q: `;  // Start the completion
             consoleLogs.length = 0;
             updateConsoleViewer();
         });
+
+        // ========================================
+        // ADVANCED CONTROLS FUNCTIONALITY
+        // ========================================
+
+        // Load settings from localStorage
+        function loadAdvancedSettings() {
+            const saved = localStorage.getItem('advancedSettings');
+            if (saved) {
+                try {
+                    const settings = JSON.parse(saved);
+                    creativityLevel = settings.creativity || 0.7;
+                    ragInfluence = settings.ragInfluence || 0.5;
+                    currentSystemPrompt = settings.systemPrompt || DEFAULT_SYSTEM_PROMPT;
+
+                    // Update UI
+                    document.getElementById('creativitySlider').value = creativityLevel;
+                    document.getElementById('creativityValue').textContent = creativityLevel.toFixed(1);
+                    document.getElementById('ragInfluenceSlider').value = ragInfluence;
+                    document.getElementById('ragInfluenceValue').textContent = ragInfluence.toFixed(1);
+                    document.getElementById('systemPromptEditor').value = currentSystemPrompt;
+
+                    console.log('✅ Loaded advanced settings:', settings);
+                } catch (e) {
+                    console.error('❌ Failed to load advanced settings:', e);
+                }
+            } else {
+                // Initialize UI with defaults
+                document.getElementById('systemPromptEditor').value = DEFAULT_SYSTEM_PROMPT;
+            }
+        }
+
+        // Save settings to localStorage
+        function saveAdvancedSettings() {
+            const settings = {
+                creativity: creativityLevel,
+                ragInfluence: ragInfluence,
+                systemPrompt: currentSystemPrompt
+            };
+            localStorage.setItem('advancedSettings', JSON.stringify(settings));
+            console.log('💾 Saved advanced settings:', settings);
+            showLearningNotification('💾 Settings saved!');
+        }
+
+        // Collapse/expand toggle
+        let advancedControlsExpanded = true;
+        document.getElementById('advancedControlsHeader').addEventListener('click', function() {
+            advancedControlsExpanded = !advancedControlsExpanded;
+            document.getElementById('advancedControlsContent').style.display = advancedControlsExpanded ? 'block' : 'none';
+            document.getElementById('advancedControlsToggle').textContent = advancedControlsExpanded ? '▼' : '▶';
+        });
+
+        // Creativity slider
+        const creativitySlider = document.getElementById('creativitySlider');
+        const creativityValue = document.getElementById('creativityValue');
+        creativitySlider.addEventListener('input', function() {
+            creativityLevel = parseFloat(this.value);
+            creativityValue.textContent = creativityLevel.toFixed(1);
+            console.log(`🎨 Creativity level: ${creativityLevel}`);
+        });
+
+        // RAG Influence slider
+        const ragInfluenceSlider = document.getElementById('ragInfluenceSlider');
+        const ragInfluenceValue = document.getElementById('ragInfluenceValue');
+        ragInfluenceSlider.addEventListener('input', function() {
+            ragInfluence = parseFloat(this.value);
+            ragInfluenceValue.textContent = ragInfluence.toFixed(1);
+            console.log(`🧠 RAG influence: ${ragInfluence}`);
+        });
+
+        // System Prompt editor
+        const systemPromptEditor = document.getElementById('systemPromptEditor');
+        systemPromptEditor.addEventListener('input', function() {
+            currentSystemPrompt = this.value;
+            console.log('📝 System prompt updated');
+        });
+
+        // Reset prompt button
+        document.getElementById('resetPromptBtn').addEventListener('click', function() {
+            currentSystemPrompt = DEFAULT_SYSTEM_PROMPT;
+            systemPromptEditor.value = DEFAULT_SYSTEM_PROMPT;
+            console.log('🔄 System prompt reset to default');
+            showLearningNotification('🔄 Prompt reset to default');
+        });
+
+        // Save settings button
+        document.getElementById('saveAdvancedSettings').addEventListener('click', function() {
+            saveAdvancedSettings();
+        });
+
+        // Load settings on page load
+        loadAdvancedSettings();
 
         // Update RAG Inspector with search results
         function updateRAGInspector(query, results, strategy) {
