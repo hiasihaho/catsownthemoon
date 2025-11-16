@@ -2778,6 +2778,48 @@ Made with 🐱 and 🌙
             }
         });
 
+        // Update rating for existing Q&A pair by ID
+        async function updateQAPairRating(id, newRating) {
+            try {
+                const transaction = learningDB.transaction([STORE_NAME], 'readwrite');
+                const store = transaction.objectStore(STORE_NAME);
+
+                // Get the existing entry
+                const entry = await new Promise((resolve, reject) => {
+                    const request = store.get(id);
+                    request.onsuccess = () => resolve(request.result);
+                    request.onerror = () => reject(request.error);
+                });
+
+                if (!entry) {
+                    console.error('Entry not found:', id);
+                    return false;
+                }
+
+                // Update the rating
+                entry.rating = newRating;
+
+                // Save back to database
+                await new Promise((resolve, reject) => {
+                    const request = store.put(entry, id);
+                    request.onsuccess = () => resolve();
+                    request.onerror = () => reject(request.error);
+                });
+
+                await updateAnalytics();
+                const ratingEmoji = newRating === 'star3' ? '⭐⭐⭐' :
+                                   newRating === 'star2' ? '⭐⭐' :
+                                   newRating === 'star1' ? '⭐' : '👎';
+                showLearningNotification(`${ratingEmoji} Rating updated!`);
+                console.log(`✅ Updated entry ${id} to rating: ${newRating}`);
+                return true;
+            } catch (error) {
+                console.error('❌ Error updating rating:', error);
+                alert('Failed to update rating. See console for details.');
+                return false;
+            }
+        }
+
         // Delete single Q&A pair by ID
         async function deleteQAPair(id) {
             if (!confirm('🗑️ Delete this Q&A pair? This cannot be undone.')) {
@@ -2884,8 +2926,14 @@ Made with 🐱 and 🌙
                                 <div style="margin-bottom: 6px;">
                                     <strong style="color: #8b5cf6;">Q:</strong> <span style="color: #333;">${p.question}</span>
                                 </div>
-                                <div style="color: #666; font-size: 13px;">
+                                <div style="color: #666; font-size: 13px; margin-bottom: 8px;">
                                     <strong style="color: #8b5cf6;">A:</strong> ${p.answer}
+                                </div>
+                                <div style="display: flex; gap: 6px; padding-top: 8px; margin-top: 8px; border-top: 1px solid rgba(0,0,0,0.05); justify-content: flex-end;">
+                                    <button class="rating-change-btn" data-id="${p.id}" data-rating="star1" style="background: ${p.rating === 'star1' ? 'rgba(251, 146, 60, 0.3)' : 'rgba(255, 255, 255, 0.6)'}; border: 1px solid ${p.rating === 'star1' ? '#fb923c' : 'rgba(0,0,0,0.1)'}; border-radius: 4px; padding: 4px 8px; font-size: 14px; cursor: pointer; transition: all 0.2s;" title="Okay (0.8× weight)">⭐</button>
+                                    <button class="rating-change-btn" data-id="${p.id}" data-rating="star2" style="background: ${p.rating === 'star2' || p.rating === 'up' ? 'rgba(16, 185, 129, 0.2)' : 'rgba(255, 255, 255, 0.6)'}; border: 1px solid ${p.rating === 'star2' || p.rating === 'up' ? '#10b981' : 'rgba(0,0,0,0.1)'}; border-radius: 4px; padding: 4px 8px; font-size: 14px; cursor: pointer; transition: all 0.2s;" title="Good (1.0× weight)">⭐⭐</button>
+                                    <button class="rating-change-btn" data-id="${p.id}" data-rating="star3" style="background: ${p.rating === 'star3' ? 'rgba(251, 191, 36, 0.3)' : 'rgba(255, 255, 255, 0.6)'}; border: 1px solid ${p.rating === 'star3' ? '#fbbf24' : 'rgba(0,0,0,0.1)'}; border-radius: 4px; padding: 4px 8px; font-size: 14px; cursor: pointer; transition: all 0.2s;" title="Excellent (1.2× weight)">⭐⭐⭐</button>
+                                    <button class="rating-change-btn" data-id="${p.id}" data-rating="down" style="background: ${p.rating === 'down' ? 'rgba(239, 68, 68, 0.2)' : 'rgba(255, 255, 255, 0.6)'}; border: 1px solid ${p.rating === 'down' ? '#ef4444' : 'rgba(0,0,0,0.1)'}; border-radius: 4px; padding: 4px 8px; font-size: 14px; cursor: pointer; transition: all 0.2s;" title="Bad (excluded)">👎</button>
                                 </div>
                             </div>
                         `;
@@ -2916,6 +2964,30 @@ Made with 🐱 and 🌙
                             this.style.background = '#fee2e2';
                             this.style.color = '#991b1b';
                             this.style.borderColor = '#fecaca';
+                        });
+                    });
+
+                    // Add event listeners to all rating change buttons
+                    document.querySelectorAll('.rating-change-btn').forEach(btn => {
+                        btn.addEventListener('click', async function(e) {
+                            e.stopPropagation();
+                            const id = parseInt(this.getAttribute('data-id'));
+                            const newRating = this.getAttribute('data-rating');
+                            const updated = await updateQAPairRating(id, newRating);
+                            if (updated) {
+                                // Refresh the database view to show updated styling
+                                await loadAndDisplayDatabase();
+                            }
+                        });
+
+                        // Hover effect
+                        btn.addEventListener('mouseenter', function() {
+                            this.style.transform = 'scale(1.1)';
+                            this.style.boxShadow = '0 2px 4px rgba(0,0,0,0.2)';
+                        });
+                        btn.addEventListener('mouseleave', function() {
+                            this.style.transform = 'scale(1)';
+                            this.style.boxShadow = 'none';
                         });
                     });
                 }
