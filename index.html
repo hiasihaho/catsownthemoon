@@ -655,6 +655,47 @@
             transition: width 0.3s ease;
         }
 
+        /* Model Selector Styles */
+        .model-selector-container {
+            padding: 10px 15px;
+            background: #f8f9fa;
+            border-bottom: 1px solid #e0e0e0;
+        }
+
+        .model-selector-label {
+            font-size: 11px;
+            color: #666;
+            margin-bottom: 5px;
+            display: block;
+        }
+
+        .model-selector {
+            width: 100%;
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            font-size: 13px;
+            background: white;
+            cursor: pointer;
+            transition: border-color 0.2s;
+        }
+
+        .model-selector:hover {
+            border-color: #667eea;
+        }
+
+        .model-selector:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.2);
+        }
+
+        .model-info {
+            font-size: 10px;
+            color: #888;
+            margin-top: 4px;
+        }
+
         .action-buttons {
             display: flex;
             gap: 10px;
@@ -1353,6 +1394,14 @@
             <div class="cat-image-container" id="catImageContainer">
                 <div class="loading">Loading cat...</div>
             </div>
+            <div class="model-selector-container">
+                <label class="model-selector-label">Select AI Model:</label>
+                <select class="model-selector" id="modelSelector">
+                    <option value="tinyllama">TinyLlama 1.1B (Fast, ~600MB)</option>
+                    <option value="qwen3-4b">Qwen3-4B-Thinking (Reasoning, ~2GB)</option>
+                </select>
+                <div class="model-info" id="modelInfo">Tiny & fast - great for quick responses</div>
+            </div>
             <div class="model-status" id="modelStatus">
                 Initializing AI... ⏳
                 <div class="progress-bar">
@@ -1583,6 +1632,56 @@
         const chatMessages = document.getElementById('chatMessages');
         const chatInput = document.getElementById('chatInput');
         const sendBtn = document.getElementById('sendBtn');
+        const modelSelector = document.getElementById('modelSelector');
+        const modelInfo = document.getElementById('modelInfo');
+
+        // Model configurations
+        const MODEL_CONFIGS = {
+            'tinyllama': {
+                name: 'TinyLlama 1.1B',
+                f16: 'TinyLlama-1.1B-Chat-v0.4-q4f16_1-MLC',
+                f32: 'TinyLlama-1.1B-Chat-v0.4-q4f32_1-MLC',
+                size: '~600MB',
+                description: 'Tiny & fast - great for quick responses',
+                requiresCustomConfig: false
+            },
+            'qwen3-4b': {
+                name: 'Qwen3-4B-Thinking',
+                f16: 'Qwen3-4B-Thinking-2507-q4f32_1-MLC',
+                f32: 'Qwen3-4B-Thinking-2507-q4f32_1-MLC',
+                size: '~2GB',
+                description: 'Reasoning model with thinking capability 🧠',
+                requiresCustomConfig: true,
+                customConfig: {
+                    model: "https://huggingface.co/vladbuinceanu/Qwen3-4B-Thinking-2507-q4f32_1-MLC",
+                    model_id: "Qwen3-4B-Thinking-2507-q4f32_1-MLC",
+                    model_lib_suffix: '/Qwen3-4B-q4f32_1-ctx4k_cs1k-webgpu.wasm',
+                    context_window_size: 4096
+                }
+            }
+        };
+
+        // Current selected model
+        let selectedModel = 'tinyllama';
+
+        // Update model info when selection changes
+        modelSelector.addEventListener('change', function() {
+            selectedModel = this.value;
+            const config = MODEL_CONFIGS[selectedModel];
+            modelInfo.textContent = config.description;
+
+            // If model is already loaded, inform user to reload
+            if (engine) {
+                modelStatus.textContent = `Model changed to ${config.name} - click here to reload`;
+                modelStatus.style.cursor = 'pointer';
+                modelStatus.onclick = async () => {
+                    modelStatus.style.cursor = 'default';
+                    modelStatus.onclick = null;
+                    engine = null;
+                    await initializeModel();
+                };
+            }
+        });
 
         // LLM state
         let engine = null;
@@ -2152,6 +2251,9 @@
         // Initialize the LLM model
         async function initializeModel() {
             try {
+                // Get selected model config
+                const config = MODEL_CONFIGS[selectedModel];
+
                 // Check WebGPU support
                 const gpuInfo = await checkWebGPU();
 
@@ -2162,45 +2264,72 @@
                 }
 
                 // Inform about shader-f16 support
+                const modeStr = gpuInfo.hasF16 ? 'f16' : 'f32';
                 if (!gpuInfo.hasF16) {
                     console.log('ℹ️ shader-f16 not available - model will use f32 fallback (still works, slightly slower)');
-                    modelStatus.textContent = 'Loading AI model (TinyLlama 1.1B with WebGPU - f32 mode)...';
-                    addMessage('✨ WebGPU detected! Loading TinyLlama 1.1B (using f32 fallback - works great on all GPUs)...', 'system');
+                    modelStatus.textContent = `Loading ${config.name} (${modeStr} mode)...`;
+                    addMessage(`✨ WebGPU detected! Loading ${config.name} (using f32 fallback - works great on all GPUs)...`, 'system');
                 } else {
                     console.log('✅ shader-f16 available - optimal performance!');
-                    modelStatus.textContent = 'Loading AI model (TinyLlama 1.1B with WebGPU - f16 mode)...';
-                    addMessage('✨ WebGPU detected! Loading TinyLlama 1.1B with f16 acceleration - optimal performance!...', 'system');
+                    modelStatus.textContent = `Loading ${config.name} (${modeStr} mode)...`;
+                    addMessage(`✨ WebGPU detected! Loading ${config.name} with f16 acceleration - optimal performance!...`, 'system');
                 }
 
                 progressFill.style.width = '5%';
 
-                // Use TinyLlama 1.1B - super lightweight and fast!
-                // Use q4f32_1 variant if f16 not available, otherwise q4f16_1
-                const modelVariant = gpuInfo.hasF16
-                    ? "TinyLlama-1.1B-Chat-v0.4-q4f16_1-MLC"
-                    : "TinyLlama-1.1B-Chat-v0.4-q4f32_1-MLC";
-
+                // Select model variant based on f16 support
+                const modelVariant = gpuInfo.hasF16 ? config.f16 : config.f32;
                 console.log(`Loading model variant: ${modelVariant}`);
 
-                engine = await webllm.CreateMLCEngine(
-                    modelVariant,
-                    {
-                        initProgressCallback: (progress) => {
-                            const percent = Math.round(progress.progress * 100);
-                            progressFill.style.width = percent + '%';
-                            modelStatus.textContent = progress.text || `Loading model... ${percent}%`;
-                            console.log('Progress:', progress);
+                // Check if model requires custom configuration (e.g., Qwen3-4B from HuggingFace)
+                if (config.requiresCustomConfig && config.customConfig) {
+                    // Custom model from HuggingFace with CDN .wasm
+                    const appConfig = {
+                        ...webllm.prebuiltAppConfig,
+                        model_list: [
+                            {
+                                model: config.customConfig.model,
+                                model_id: config.customConfig.model_id,
+                                model_lib: webllm.modelLibURLPrefix + webllm.modelVersion + config.customConfig.model_lib_suffix,
+                                overrides: { context_window_size: config.customConfig.context_window_size }
+                            }
+                        ]
+                    };
+
+                    engine = await webllm.CreateMLCEngine(
+                        config.customConfig.model_id,
+                        {
+                            appConfig: appConfig,
+                            initProgressCallback: (progress) => {
+                                const percent = Math.round(progress.progress * 100);
+                                progressFill.style.width = percent + '%';
+                                modelStatus.textContent = progress.text || `Loading ${config.name}... ${percent}%`;
+                                console.log('Progress:', progress);
+                            }
                         }
-                    }
-                );
+                    );
+                } else {
+                    // Standard WebLLM model
+                    engine = await webllm.CreateMLCEngine(
+                        modelVariant,
+                        {
+                            initProgressCallback: (progress) => {
+                                const percent = Math.round(progress.progress * 100);
+                                progressFill.style.width = percent + '%';
+                                modelStatus.textContent = progress.text || `Loading ${config.name}... ${percent}%`;
+                                console.log('Progress:', progress);
+                            }
+                        }
+                    );
+                }
 
                 progressFill.style.width = '100%';
 
                 // Check if embeddings are ready
                 if (embeddingsReady) {
-                    modelStatus.textContent = '✅ AI Ready with Semantic Search! 🧠🚀';
+                    modelStatus.textContent = `✅ ${config.name} Ready with Semantic Search! 🧠🚀`;
                 } else {
-                    modelStatus.textContent = '✅ AI Ready! (Semantic search loading in background...) 🚀';
+                    modelStatus.textContent = `✅ ${config.name} Ready! (Semantic search loading...) 🚀`;
                 }
 
                 // Enable chat input
@@ -2209,7 +2338,10 @@
                 chatInput.focus();
 
                 // Add welcome message
-                let welcomeMsg = 'Hello! I\'m a cat-powered AI assistant running TinyLlama 1.1B. I\'m tiny but mighty! What would you like to know? 🐱';
+                let welcomeMsg = `Hello! I'm a cat-powered AI assistant running ${config.name}. What would you like to know? 🐱`;
+                if (selectedModel === 'qwen3-4b') {
+                    welcomeMsg += '\n\n🧠 I can show you my thinking process!';
+                }
                 if (!embeddingsReady) {
                     welcomeMsg += '\n\n💡 Tip: Semantic search is loading in the background (~30 seconds). Responses will improve once ready!';
                 }
