@@ -1677,7 +1677,19 @@
                 modelStatus.onclick = async () => {
                     modelStatus.style.cursor = 'default';
                     modelStatus.onclick = null;
+
+                    // Properly unload the old model to free GPU memory
+                    try {
+                        console.log('🗑️ Unloading current model to free GPU memory...');
+                        await engine.unload();
+                        console.log('✅ Model unloaded successfully');
+                    } catch (e) {
+                        console.log('⚠️ Error unloading model:', e);
+                    }
                     engine = null;
+
+                    // Clear chat messages for fresh start
+                    chatMessages.innerHTML = '';
                     await initializeModel();
                 };
             }
