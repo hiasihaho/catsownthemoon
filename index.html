@@ -983,16 +983,23 @@
             }, 3000);
         }
 
-        // Check WebGPU support
+        // Check WebGPU support and features
         async function checkWebGPU() {
             if (!navigator.gpu) {
-                return false;
+                return { available: false, hasF16: false };
             }
             try {
                 const adapter = await navigator.gpu.requestAdapter();
-                return adapter !== null;
+                if (!adapter) {
+                    return { available: false, hasF16: false };
+                }
+
+                // Check for shader-f16 support (optional, fallback to f32 if not available)
+                const hasF16 = adapter.features.has('shader-f16');
+
+                return { available: true, hasF16: hasF16 };
             } catch {
-                return false;
+                return { available: false, hasF16: false };
             }
         }
 
@@ -1104,15 +1111,23 @@
         async function initializeModel() {
             try {
                 // Check WebGPU support
-                const hasWebGPU = await checkWebGPU();
+                const gpuInfo = await checkWebGPU();
 
-                if (!hasWebGPU) {
+                if (!gpuInfo.available) {
                     modelStatus.textContent = '⚠️ WebGPU not available - model requires WebGPU';
                     addMessage('Note: Your browser doesn\'t support WebGPU. This model requires WebGPU. Please use Chrome/Edge 113+.', 'system');
                     return;
+                }
+
+                // Inform about shader-f16 support
+                if (!gpuInfo.hasF16) {
+                    console.log('ℹ️ shader-f16 not available - model will use f32 fallback (still works, slightly slower)');
+                    modelStatus.textContent = 'Loading AI model (TinyLlama 1.1B with WebGPU - f32 mode)...';
+                    addMessage('✨ WebGPU detected! Loading TinyLlama 1.1B (using f32 fallback - works great on all GPUs)...', 'system');
                 } else {
-                    modelStatus.textContent = 'Loading AI model (TinyLlama 1.1B with WebGPU)...';
-                    addMessage('✨ WebGPU detected! Loading TinyLlama 1.1B - tiny, fast & efficient...', 'system');
+                    console.log('✅ shader-f16 available - optimal performance!');
+                    modelStatus.textContent = 'Loading AI model (TinyLlama 1.1B with WebGPU - f16 mode)...';
+                    addMessage('✨ WebGPU detected! Loading TinyLlama 1.1B with f16 acceleration - optimal performance!...', 'system');
                 }
 
                 progressFill.style.width = '5%';
