@@ -669,6 +669,67 @@
         .drop-zone input {
             display: none;
         }
+
+        /* Model Selector Styles */
+        .model-selector {
+            position: relative;
+            z-index: 20;
+            margin-top: 30px;
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .model-option {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-radius: 15px;
+            padding: 15px 25px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+            min-width: 160px;
+        }
+
+        .model-option:hover {
+            background: rgba(255, 255, 255, 0.2);
+            border-color: rgba(255, 255, 255, 0.5);
+            transform: translateY(-5px);
+            box-shadow: 0 10px 30px rgba(102, 126, 234, 0.3);
+        }
+
+        .model-option.selected {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-color: #fff;
+            box-shadow: 0 10px 40px rgba(102, 126, 234, 0.5);
+        }
+
+        .model-icon {
+            font-size: 32px;
+        }
+
+        .model-name {
+            color: white;
+            font-weight: bold;
+            font-size: 14px;
+            text-align: center;
+        }
+
+        .model-desc {
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 11px;
+            text-align: center;
+            line-height: 1.3;
+        }
+
+        .model-option.selected .model-desc {
+            color: rgba(255, 255, 255, 0.95);
+        }
     </style>
 </head>
 <body>
@@ -690,6 +751,20 @@
 
         <h1>Hello World!</h1>
         <p>Welcome to the moon... where cats reign supreme! 🌙</p>
+
+        <!-- Model Selector -->
+        <div class="model-selector">
+            <div class="model-option selected" id="modelTiny" data-model="tiny">
+                <div class="model-icon">⚡</div>
+                <div class="model-name">TinyLlama</div>
+                <div class="model-desc">Fast & Light<br>~0.7GB</div>
+            </div>
+            <div class="model-option" id="modelQwen" data-model="qwen">
+                <div class="model-icon">🧠</div>
+                <div class="model-name">Qwen3-4B</div>
+                <div class="model-desc">Thinking Mode<br>~2-3GB</div>
+            </div>
+        </div>
     </div>
 
     <!-- Chat Bubble -->
@@ -815,11 +890,35 @@
         const chatMessages = document.getElementById('chatMessages');
         const chatInput = document.getElementById('chatInput');
         const sendBtn = document.getElementById('sendBtn');
+        const modelTiny = document.getElementById('modelTiny');
+        const modelQwen = document.getElementById('modelQwen');
+
+        // Model configurations
+        const MODEL_CONFIGS = {
+            tiny: {
+                name: 'TinyLlama 1.1B',
+                f16: 'TinyLlama-1.1B-Chat-v0.4-q4f16_1-MLC',
+                f32: 'TinyLlama-1.1B-Chat-v0.4-q4f32_1-MLC',
+                size: '~0.7GB',
+                icon: '⚡',
+                thinkingSupport: false,
+                maxTokens: 150
+            },
+            qwen: {
+                name: 'Qwen3-4B-Thinking',
+                customConfig: true,
+                size: '~2-3GB',
+                icon: '🧠',
+                thinkingSupport: true,
+                maxTokens: 200
+            }
+        };
 
         // LLM state
         let engine = null;
         let isGenerating = false;
         let conversationHistory = [];
+        let selectedModel = localStorage.getItem('selectedModel') || 'tiny';
 
         // Learning database state
         let learningDB = null;
@@ -828,20 +927,29 @@
         const STORE_NAME = 'qa_pairs';
 
         // Starter knowledge - pre-seeded Q&A pairs for better initial experience
-        const STARTER_KNOWLEDGE = [
-            { q: "what are cats", a: "Cats are magnificent, independent creatures who rule the moon and occasionally tolerate humans! 🐱" },
-            { q: "tell me about cats", a: "Cats are superior beings with excellent napping skills and a natural talent for knocking things off tables!" },
-            { q: "what is your name", a: "I'm Moon Cat, the AI assistant who lives on the moon! Meow! 🌙😺" },
-            { q: "who are you", a: "I'm a cat-powered AI running in your browser. I own the moon and love helping humans!" },
-            { q: "what can you do", a: "I can chat about anything, answer questions, and share my cat wisdom! Plus, I'm learning from our conversations!" },
-            { q: "how do you work", a: "I'm powered by TinyLlama 1.1B AI model running in your browser with WebGPU acceleration. I'm tiny, fast, and learn from your feedback! ✨" },
-            { q: "do you like the moon", a: "The moon belongs to cats! It's the perfect place - quiet, peaceful, and excellent for naps! 🌙" },
-            { q: "why cats on the moon", a: "Because cats are naturally drawn to high places, and the moon is the highest place of all! Plus, excellent bird watching. 😺" },
-            { q: "what do you think about dogs", a: "Dogs are fine... I suppose. They're very enthusiastic. A bit too enthusiastic if you ask me! 🐕" },
-            { q: "can you help me", a: "Of course! That's what I'm here for. Ask me anything and I'll do my best to assist! 🐾" },
-            { q: "are you smart", a: "I'm as smart as you help me become! The more you teach me with 👍 and 👎, the better I get!" },
-            { q: "thank you", a: "You're welcome! Happy to help, fellow moon explorer! 🌙✨" },
-        ];
+        // Starter knowledge - dynamically includes current model info
+        function getStarterKnowledge() {
+            const modelName = MODEL_CONFIGS[selectedModel].name;
+            const modelIcon = MODEL_CONFIGS[selectedModel].icon;
+            const thinkingCapability = MODEL_CONFIGS[selectedModel].thinkingSupport
+                ? " I can even show you my thought process! 🧠"
+                : " I'm tiny, fast, and";
+
+            return [
+                { q: "what are cats", a: "Cats are magnificent, independent creatures who rule the moon and occasionally tolerate humans! 🐱" },
+                { q: "tell me about cats", a: "Cats are superior beings with excellent napping skills and a natural talent for knocking things off tables!" },
+                { q: "what is your name", a: "I'm Moon Cat, the AI assistant who lives on the moon! Meow! 🌙😺" },
+                { q: "who are you", a: "I'm a cat-powered AI running in your browser. I own the moon and love helping humans!" },
+                { q: "what can you do", a: "I can chat about anything, answer questions, and share my cat wisdom! Plus, I'm learning from our conversations!" },
+                { q: "how do you work", a: `I'm powered by ${modelName} ${modelIcon} running in your browser with WebGPU acceleration.${thinkingCapability} learn from your feedback! ✨` },
+                { q: "do you like the moon", a: "The moon belongs to cats! It's the perfect place - quiet, peaceful, and excellent for naps! 🌙" },
+                { q: "why cats on the moon", a: "Because cats are naturally drawn to high places, and the moon is the highest place of all! Plus, excellent bird watching. 😺" },
+                { q: "what do you think about dogs", a: "Dogs are fine... I suppose. They're very enthusiastic. A bit too enthusiastic if you ask me! 🐕" },
+                { q: "can you help me", a: "Of course! That's what I'm here for. Ask me anything and I'll do my best to assist! 🐾" },
+                { q: "are you smart", a: "I'm as smart as you help me become! The more you teach me with 👍 and 👎, the better I get!" },
+                { q: "thank you", a: "You're welcome! Happy to help, fellow moon explorer! 🌙✨" },
+            ];
+        }
 
         // Initialize IndexedDB for learning
         async function initLearningDB() {
@@ -879,7 +987,8 @@
             if (stats.total === 0) {
                 console.log('🌱 Seeding database with starter knowledge...');
 
-                for (const item of STARTER_KNOWLEDGE) {
+                const starterKnowledge = getStarterKnowledge();
+                for (const item of starterKnowledge) {
                     await saveQAPair(item.q, item.a, 'up');
                 }
 
@@ -1119,41 +1228,60 @@
                     return;
                 }
 
-                // Inform about shader-f16 support
+                const config = MODEL_CONFIGS[selectedModel];
+                const f16Mode = gpuInfo.hasF16 ? 'f16' : 'f32';
+
+                // Inform about shader-f16 support and selected model
+                console.log(`Loading model: ${config.name} (${f16Mode} mode)`);
                 if (!gpuInfo.hasF16) {
-                    console.log('ℹ️ shader-f16 not available - model will use f32 fallback (still works, slightly slower)');
-                    modelStatus.textContent = 'Loading AI model (TinyLlama 1.1B with WebGPU - f32 mode)...';
-                    addMessage('✨ WebGPU detected! Loading TinyLlama 1.1B (using f32 fallback - works great on all GPUs)...', 'system');
+                    console.log('ℹ️ shader-f16 not available - using f32 fallback');
+                    modelStatus.textContent = `Loading ${config.name} (${f16Mode} mode)...`;
+                    addMessage(`✨ WebGPU detected! Loading ${config.name} (using f32 fallback - works great!)...`, 'system');
                 } else {
                     console.log('✅ shader-f16 available - optimal performance!');
-                    modelStatus.textContent = 'Loading AI model (TinyLlama 1.1B with WebGPU - f16 mode)...';
-                    addMessage('✨ WebGPU detected! Loading TinyLlama 1.1B with f16 acceleration - optimal performance!...', 'system');
+                    modelStatus.textContent = `Loading ${config.name} (${f16Mode} mode)...`;
+                    addMessage(`✨ WebGPU detected! Loading ${config.name} with f16 acceleration!...`, 'system');
                 }
 
                 progressFill.style.width = '5%';
 
-                // Use TinyLlama 1.1B - super lightweight and fast!
-                // Use q4f32_1 variant if f16 not available, otherwise q4f16_1
-                const modelVariant = gpuInfo.hasF16
-                    ? "TinyLlama-1.1B-Chat-v0.4-q4f16_1-MLC"
-                    : "TinyLlama-1.1B-Chat-v0.4-q4f32_1-MLC";
+                // Configure model based on selection
+                if (selectedModel === 'tiny') {
+                    // TinyLlama - use f16 or f32 variant
+                    const modelVariant = gpuInfo.hasF16 ? config.f16 : config.f32;
+                    console.log(`Loading model variant: ${modelVariant}`);
 
-                console.log(`Loading model variant: ${modelVariant}`);
-
-                engine = await webllm.CreateMLCEngine(
-                    modelVariant,
-                    {
+                    engine = await webllm.CreateMLCEngine(modelVariant, {
                         initProgressCallback: (progress) => {
                             const percent = Math.round(progress.progress * 100);
                             progressFill.style.width = percent + '%';
                             modelStatus.textContent = progress.text || `Loading model... ${percent}%`;
-                            console.log('Progress:', progress);
                         }
-                    }
-                );
+                    });
+                } else if (selectedModel === 'qwen') {
+                    // Qwen3-4B-Thinking - custom config with CDN .wasm
+                    const appConfig = {
+                        ...webllm.prebuiltAppConfig,
+                        model_list: [{
+                            model: "https://huggingface.co/vladbuinceanu/Qwen3-4B-Thinking-2507-q4f32_1-MLC",
+                            model_id: "Qwen3-4B-Thinking-2507-q4f32_1-MLC",
+                            model_lib: webllm.modelLibURLPrefix + webllm.modelVersion + '/Qwen3-4B-q4f32_1-ctx4k_cs1k-webgpu.wasm',
+                            overrides: { context_window_size: 4096 }
+                        }]
+                    };
+
+                    engine = await webllm.CreateMLCEngine("Qwen3-4B-Thinking-2507-q4f32_1-MLC", {
+                        appConfig: appConfig,
+                        initProgressCallback: (progress) => {
+                            const percent = Math.round(progress.progress * 100);
+                            progressFill.style.width = percent + '%';
+                            modelStatus.textContent = progress.text || `Loading model... ${percent}%`;
+                        }
+                    });
+                }
 
                 progressFill.style.width = '100%';
-                modelStatus.textContent = '✅ AI Ready! (TinyLlama - fast & lightweight 🚀)';
+                modelStatus.textContent = `✅ AI Ready! (${config.name} ${config.icon})`;
 
                 // Enable chat input
                 chatInput.disabled = false;
@@ -1161,7 +1289,10 @@
                 chatInput.focus();
 
                 // Add welcome message
-                addMessage('Hello! I\'m a cat-powered AI assistant running TinyLlama 1.1B. I\'m tiny but mighty! What would you like to know? 🐱', 'assistant');
+                const welcomeMsg = config.thinkingSupport
+                    ? `Hello! I'm a cat-powered AI assistant running ${config.name}. I can show you my thought process! What would you like to know? 🐱🧠`
+                    : `Hello! I'm a cat-powered AI assistant running ${config.name}. I'm tiny but mighty! What would you like to know? 🐱`;
+                addMessage(welcomeMsg, 'assistant');
 
             } catch (error) {
                 console.error('Error loading model:', error);
@@ -1200,13 +1331,28 @@
                     { role: 'user', content: userMessage }
                 ];
 
-                // Generate response with TinyLlama
-                const reply = await engine.chat.completions.create({
+                // Generate response with selected model
+                const config = MODEL_CONFIGS[selectedModel];
+                const requestOptions = {
                     messages: messages,
-                    max_tokens: 150,
+                    max_tokens: config.maxTokens,
                     temperature: 0.7,
                     top_p: 0.9,
-                });
+                };
+
+                // Enable thinking for Qwen3-4B
+                if (config.thinkingSupport) {
+                    requestOptions.extra_body = {
+                        enable_thinking: true,
+                        max_thinking_tokens: 1000,
+                        chat_template_kwargs: {
+                            enable_thinking: true,
+                            max_thinking_tokens: 1000
+                        }
+                    };
+                }
+
+                const reply = await engine.chat.completions.create(requestOptions);
 
                 // Extract response
                 let finalResponse = reply.choices[0].message.content.trim();
@@ -1245,10 +1391,12 @@
         // Fun cat-themed responses as fallback
         function getCatResponse(message) {
             const lowerMsg = message.toLowerCase();
+            const config = MODEL_CONFIGS[selectedModel];
 
             // Model/identity questions
             if (lowerMsg.includes('model') || lowerMsg.includes('llm') || lowerMsg.includes('what are you')) {
-                return "I'm a cat-powered AI running TinyLlama 1.1B in your browser! I'm tiny but mighty! Meow! 🐱";
+                const thinkingPart = config.thinkingSupport ? " I can even show you how I think!" : " I'm tiny but mighty!";
+                return `I'm a cat-powered AI running ${config.name} in your browser!${thinkingPart} Meow! ${config.icon}🐱`;
             }
 
             // Cat-related
@@ -1571,6 +1719,49 @@
             await updateAnalytics();
             return result;
         };
+
+        // Model selection handlers
+        function updateModelSelection() {
+            // Update UI to reflect selected model
+            modelTiny.classList.toggle('selected', selectedModel === 'tiny');
+            modelQwen.classList.toggle('selected', selectedModel === 'qwen');
+
+            // Save to localStorage
+            localStorage.setItem('selectedModel', selectedModel);
+
+            console.log(`Model selected: ${selectedModel}`);
+        }
+
+        modelTiny.addEventListener('click', function() {
+            if (selectedModel === 'tiny') return; // Already selected
+
+            selectedModel = 'tiny';
+            updateModelSelection();
+
+            // Clear existing engine to force reload
+            if (engine) {
+                console.log('Switching to TinyLlama - model will reload on next chat');
+                engine = null;
+                modelStatus.textContent = 'Model changed - will reload on next chat';
+            }
+        });
+
+        modelQwen.addEventListener('click', function() {
+            if (selectedModel === 'qwen') return; // Already selected
+
+            selectedModel = 'qwen';
+            updateModelSelection();
+
+            // Clear existing engine to force reload
+            if (engine) {
+                console.log('Switching to Qwen3-4B - model will reload on next chat');
+                engine = null;
+                modelStatus.textContent = 'Model changed - will reload on next chat';
+            }
+        });
+
+        // Initialize model selection UI
+        updateModelSelection();
 
         // Initialize rocket display
         (async function() {
