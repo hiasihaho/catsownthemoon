@@ -1652,7 +1652,7 @@
                 f16: 'Qwen3-4B-Thinking-2507-q4f32_1-MLC',
                 f32: 'Qwen3-4B-Thinking-2507-q4f32_1-MLC',
                 size: '~2GB',
-                description: 'Reasoning model with thinking capability 🧠',
+                description: 'Reasoning model 🧠 (requires 8GB+ VRAM)',
                 requiresCustomConfig: true,
                 customConfig: {
                     model: "https://huggingface.co/vladbuinceanu/Qwen3-4B-Thinking-2507-q4f32_1-MLC",
@@ -2374,8 +2374,26 @@
 
             } catch (error) {
                 console.error('Error loading model:', error);
-                modelStatus.textContent = '❌ Failed to load AI model. Please refresh.';
-                addMessage('Sorry, I encountered an error loading the AI model. Please try refreshing the page.', 'system');
+
+                // Check for GPU out of memory errors
+                const errorStr = error.toString().toLowerCase();
+                if (errorStr.includes('memory') || errorStr.includes('gpu') || errorStr.includes('disposed')) {
+                    modelStatus.textContent = '❌ GPU out of memory - try TinyLlama';
+                    addMessage('⚠️ GPU out of memory! Your GPU doesn\'t have enough VRAM for this model.\n\n' +
+                        '**Solution:** Reload the page and select TinyLlama 1.1B instead (works with 4GB+ VRAM).', 'system');
+
+                    // Reset button for retry
+                    loadModelBtn.disabled = false;
+                    loadModelBtn.textContent = 'Reload & Try TinyLlama';
+                    loadModelBtn.style.display = 'block';
+                    loadModelBtn.onclick = () => {
+                        localStorage.setItem('selectedModel', 'tinyllama');
+                        location.reload();
+                    };
+                } else {
+                    modelStatus.textContent = '❌ Failed to load AI model. Please refresh.';
+                    addMessage('Sorry, I encountered an error loading the AI model. Please try refreshing the page.', 'system');
+                }
             }
         }
 
