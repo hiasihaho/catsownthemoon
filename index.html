@@ -1401,6 +1401,7 @@
                     <option value="qwen3-4b">Qwen3-4B-Thinking (Reasoning, ~2GB)</option>
                 </select>
                 <div class="model-info" id="modelInfo">Tiny & fast - great for quick responses</div>
+                <button class="send-btn" id="loadModelBtn" style="margin-top: 8px; width: 100%;">Load Model</button>
             </div>
             <div class="model-status" id="modelStatus">
                 Initializing AI... ⏳
@@ -1634,6 +1635,7 @@
         const sendBtn = document.getElementById('sendBtn');
         const modelSelector = document.getElementById('modelSelector');
         const modelInfo = document.getElementById('modelInfo');
+        const loadModelBtn = document.getElementById('loadModelBtn');
 
         // Model configurations
         const MODEL_CONFIGS = {
@@ -1670,30 +1672,41 @@
             const config = MODEL_CONFIGS[selectedModel];
             modelInfo.textContent = config.description;
 
-            // If model is already loaded, inform user to reload
+            // If model is already loaded, warn about page reload needed
             if (engine) {
-                modelStatus.textContent = `Model changed to ${config.name} - click here to reload`;
-                modelStatus.style.cursor = 'pointer';
-                modelStatus.onclick = async () => {
-                    modelStatus.style.cursor = 'default';
-                    modelStatus.onclick = null;
-
-                    // Properly unload the old model to free GPU memory
-                    try {
-                        console.log('🗑️ Unloading current model to free GPU memory...');
-                        await engine.unload();
-                        console.log('✅ Model unloaded successfully');
-                    } catch (e) {
-                        console.log('⚠️ Error unloading model:', e);
-                    }
-                    engine = null;
-
-                    // Clear chat messages for fresh start
-                    chatMessages.innerHTML = '';
-                    await initializeModel();
+                modelStatus.textContent = `⚠️ Page reload required to switch models (GPU memory)`;
+                loadModelBtn.textContent = 'Reload Page to Switch';
+                loadModelBtn.onclick = () => {
+                    // Save selected model to localStorage before reload
+                    localStorage.setItem('selectedModel', selectedModel);
+                    location.reload();
                 };
             }
         });
+
+        // Load model button click handler
+        loadModelBtn.addEventListener('click', async function() {
+            if (engine) {
+                // If model already loaded, need page reload
+                localStorage.setItem('selectedModel', selectedModel);
+                location.reload();
+                return;
+            }
+
+            loadModelBtn.disabled = true;
+            loadModelBtn.textContent = 'Loading...';
+            await initializeModel();
+            loadModelBtn.style.display = 'none';
+        });
+
+        // Restore selected model from localStorage (after page reload)
+        const savedModel = localStorage.getItem('selectedModel');
+        if (savedModel && MODEL_CONFIGS[savedModel]) {
+            selectedModel = savedModel;
+            modelSelector.value = savedModel;
+            modelInfo.textContent = MODEL_CONFIGS[savedModel].description;
+            localStorage.removeItem('selectedModel'); // Clear after use
+        }
 
         // LLM state
         let engine = null;
@@ -2697,10 +2710,8 @@ Your personality:
                     backfillEmbeddings();
                 }
 
-                // Initialize model on first open
-                if (!engine && !isGenerating) {
-                    initializeModel();
-                }
+                // Model initialization now happens via "Load Model" button
+                // to allow user to select model before loading
             } else {
                 supportDialog.classList.remove('active');
             }
