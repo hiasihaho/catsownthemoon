@@ -1398,7 +1398,11 @@
                 <label class="model-selector-label">Select AI Model:</label>
                 <select class="model-selector" id="modelSelector">
                     <option value="tinyllama">TinyLlama 1.1B (Fast, ~600MB)</option>
-                    <option value="qwen3-4b">Qwen3-4B-Thinking (Reasoning, ~2GB)</option>
+                    <option value="qwen2.5-1.5b">Qwen2.5-1.5B (Reasoning, ~1GB)</option>
+                    <option value="smollm2-1.7b">SmolLM2-1.7B (Efficient, ~1GB)</option>
+                    <option value="phi3-mini">Phi-3-mini-4k (Reasoning, ~2GB)</option>
+                    <option value="phi3.5-mini">Phi-3.5-mini (Reasoning, ~2GB)</option>
+                    <option value="qwen3-4b">Qwen3-4B-Thinking (8GB+ VRAM, ~2GB)</option>
                 </select>
                 <div class="model-info" id="modelInfo">Tiny & fast - great for quick responses</div>
                 <button class="send-btn" id="loadModelBtn" style="margin-top: 8px; width: 100%;">Load Model</button>
@@ -1645,6 +1649,38 @@
                 f32: 'TinyLlama-1.1B-Chat-v0.4-q4f32_1-MLC',
                 size: '~600MB',
                 description: 'Tiny & fast - great for quick responses',
+                requiresCustomConfig: false
+            },
+            'qwen2.5-1.5b': {
+                name: 'Qwen2.5-1.5B',
+                f16: 'Qwen2.5-1.5B-Instruct-q4f16_1-MLC',
+                f32: 'Qwen2.5-1.5B-Instruct-q4f32_1-MLC',
+                size: '~1GB',
+                description: 'Good reasoning in compact size - recommended for 6GB VRAM',
+                requiresCustomConfig: false
+            },
+            'smollm2-1.7b': {
+                name: 'SmolLM2-1.7B',
+                f16: 'SmolLM2-1.7B-Instruct-q4f16_1-MLC',
+                f32: 'SmolLM2-1.7B-Instruct-q4f32_1-MLC',
+                size: '~1GB',
+                description: 'HuggingFace efficient reasoner - great balance',
+                requiresCustomConfig: false
+            },
+            'phi3-mini': {
+                name: 'Phi-3-mini-4k',
+                f16: 'Phi-3-mini-4k-instruct-q4f16_1-MLC',
+                f32: 'Phi-3-mini-4k-instruct-q4f32_1-MLC',
+                size: '~2GB',
+                description: 'Microsoft reasoning model - punches above its weight',
+                requiresCustomConfig: false
+            },
+            'phi3.5-mini': {
+                name: 'Phi-3.5-mini',
+                f16: 'Phi-3.5-mini-instruct-q4f16_1-MLC',
+                f32: 'Phi-3.5-mini-instruct-q4f32_1-MLC',
+                size: '~2GB',
+                description: 'Newer Phi variant - improved reasoning & coding',
                 requiresCustomConfig: false
             },
             'qwen3-4b': {
