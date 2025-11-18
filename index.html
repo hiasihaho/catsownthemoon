@@ -2175,9 +2175,15 @@
                 progressFill.style.width = '5%';
 
                 // Use TinyLlama 1.1B - super lightweight and fast!
-                // This is an official MLC model, so no custom config needed
+                // Use q4f32_1 variant if f16 not available, otherwise q4f16_1
+                const modelVariant = gpuInfo.hasF16
+                    ? "TinyLlama-1.1B-Chat-v0.4-q4f16_1-MLC"
+                    : "TinyLlama-1.1B-Chat-v0.4-q4f32_1-MLC";
+
+                console.log(`Loading model variant: ${modelVariant}`);
+
                 engine = await webllm.CreateMLCEngine(
-                    "TinyLlama-1.1B-Chat-v0.4-q4f16_1-MLC",
+                    modelVariant,
                     {
                         initProgressCallback: (progress) => {
                             const percent = Math.round(progress.progress * 100);
