@@ -1934,6 +1934,28 @@
                     }
                 });
 
+                // Knowledge Atom indexes
+                await learningDB.createIndex({
+                    index: {
+                        fields: ['type', 'source_doc_id'],
+                        name: 'chunk-source-index'
+                    }
+                });
+
+                await learningDB.createIndex({
+                    index: {
+                        fields: ['type', 'quality_score'],
+                        name: 'quality-index'
+                    }
+                });
+
+                await learningDB.createIndex({
+                    index: {
+                        fields: ['type', 'training_ready', 'quality_score'],
+                        name: 'training-export-index'
+                    }
+                });
+
                 console.log('📊 Indexes created for fast Mango queries!');
 
                 // Seed with starter knowledge if database is empty
@@ -2158,6 +2180,552 @@
                 };
             }
         }
+
+        // ═══════════════════════════════════════════════════════════════
+        // KNOWLEDGE ATOM SYSTEM - Unified RAG & Training Pre-processor
+        // ═══════════════════════════════════════════════════════════════
+
+        // Analyze content to detect type and structure
+        function analyzeContent(content, userHints = {}) {
+            const analysis = {
+                content_type: null,
+                structure: [],
+                entities: [],
+                themes: [],
+                total_tokens: Math.ceil(content.length / 4)
+            };
+
+            // Detect content type
+            if (userHints.content_type) {
+                analysis.content_type = userHints.content_type;
+            } else {
+                const hasQAPattern = /^Q:|^Question:|^\d+\.\s*Q:/im.test(content);
+                const hasNarrativeMarkers = /once upon|in the year|the story|chapter/i.test(content);
+                const hasBulletPoints = /^[\-\*•]\s/m.test(content);
+
+                if (hasQAPattern) analysis.content_type = 'faq';
+                else if (hasNarrativeMarkers) analysis.content_type = 'narrative';
+                else if (hasBulletPoints) analysis.content_type = 'facts';
+                else analysis.content_type = 'article';
+            }
+
+            // Extract entities
+            const datePattern = /\b((?:19|20)\d{2})\b/g;
+            const namePattern = /\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)\b/g;
+            let match;
+
+            while ((match = datePattern.exec(content)) !== null) {
+                analysis.entities.push({ name: match[1], type: 'date' });
+            }
+            while ((match = namePattern.exec(content)) !== null) {
+                if (match.index > 0 && content[match.index - 1] !== '.') {
+                    analysis.entities.push({ name: match[1], type: 'name' });
+                }
+            }
+
+            // Deduplicate entities
+            const seen = new Set();
+            analysis.entities = analysis.entities.filter(e => {
+                const key = e.name.toLowerCase();
+                if (seen.has(key)) return false;
+                seen.add(key);
+                return true;
+            });
+
+            // Extract structure based on type
+            if (analysis.content_type === 'faq') {
+                const qaPattern = /Q:\s*(.+?)\nA:\s*(.+?)(?=\nQ:|\n\n|$)/gs;
+                while ((match = qaPattern.exec(content)) !== null) {
+                    analysis.structure.push({
+                        type: 'qa',
+                        question: match[1].trim(),
+                        answer: match[2].trim()
+                    });
+                }
+            } else {
+                // Split by paragraphs
+                const paragraphs = content.split(/\n\n+/).filter(p => p.trim());
+                analysis.structure = paragraphs.map((p, i) => ({
+                    type: 'paragraph',
+                    index: i,
+                    content: p.trim()
+                }));
+            }
+
+            return analysis;
+        }
+
+        // Smart chunking by semantic boundaries
+        function smartChunk(content, analysis) {
+            const chunks = [];
+            const TARGET_TOKENS = 350;
+            const MAX_TOKENS = 500;
+
+            if (analysis.content_type === 'faq') {
+                // FAQ: Each Q&A is its own chunk
+                analysis.structure.forEach((qa, i) => {
+                    if (qa.type === 'qa') {
+                        chunks.push({
+                            content: `Q: ${qa.question}\nA: ${qa.answer}`,
+                            chunk_index: i,
+                            is_qa: true,
+                            tokens: Math.ceil((qa.question.length + qa.answer.length) / 4)
+                        });
+                    }
+                });
+            } else {
+                // Chunk by sentences, respecting token limits
+                const sentences = content.match(/[^.!?]+[.!?]+/g) || [content];
+                let currentChunk = [];
+                let currentTokens = 0;
+                let chunkIndex = 0;
+
+                sentences.forEach(sentence => {
+                    const sentenceTokens = Math.ceil(sentence.length / 4);
+
+                    if (currentTokens + sentenceTokens > MAX_TOKENS && currentTokens > 0) {
+                        chunks.push({
+                            content: currentChunk.join(' ').trim(),
+                            chunk_index: chunkIndex++,
+                            is_qa: false,
+                            tokens: currentTokens
+                        });
+                        currentChunk = [];
+                        currentTokens = 0;
+                    }
+
+                    currentChunk.push(sentence.trim());
+                    currentTokens += sentenceTokens;
+                });
+
+                if (currentChunk.length > 0) {
+                    chunks.push({
+                        content: currentChunk.join(' ').trim(),
+                        chunk_index: chunkIndex,
+                        is_qa: false,
+                        tokens: currentTokens
+                    });
+                }
+            }
+
+            return chunks;
+        }
+
+        // Generate Q:A pairs from a chunk
+        function generateQAPairsFromChunk(chunk, analysis) {
+            const pairs = [];
+
+            // If chunk is already Q:A format
+            if (chunk.is_qa) {
+                const qMatch = chunk.content.match(/Q:\s*(.+)/);
+                const aMatch = chunk.content.match(/A:\s*(.+)/s);
+                if (qMatch && aMatch) {
+                    pairs.push({
+                        question: qMatch[1].trim(),
+                        answer: aMatch[1].trim(),
+                        quality_score: 0.9,
+                        source: 'direct'
+                    });
+                }
+                return pairs;
+            }
+
+            // Entity-based questions
+            analysis.entities.forEach(entity => {
+                if (chunk.content.toLowerCase().includes(entity.name.toLowerCase())) {
+                    const sentences = chunk.content.match(/[^.!?]*[.!?]/g) || [];
+                    const relevantSentence = sentences.find(s =>
+                        s.toLowerCase().includes(entity.name.toLowerCase())
+                    );
+
+                    if (relevantSentence) {
+                        if (entity.type === 'date') {
+                            pairs.push({
+                                question: `When did events related to ${entity.name} occur?`,
+                                answer: relevantSentence.trim(),
+                                quality_score: 0.75,
+                                source: 'entity'
+                            });
+                        } else if (entity.type === 'name') {
+                            pairs.push({
+                                question: `Who is ${entity.name}?`,
+                                answer: relevantSentence.trim(),
+                                quality_score: 0.8,
+                                source: 'entity'
+                            });
+                        }
+                    }
+                }
+            });
+
+            // Fact extraction patterns
+            const factPatterns = [
+                {
+                    pattern: /([A-Z][^.]*?)\s+(?:is|are|was|were)\s+([^.]+\.)/g,
+                    qTemplate: (m) => `What is ${m[1].trim()}?`,
+                    aTemplate: (m) => `${m[1].trim()} is ${m[2].trim()}`
+                },
+                {
+                    pattern: /([A-Z][^.]*?)\s+(?:can|could)\s+([^.]+\.)/g,
+                    qTemplate: (m) => `What can ${m[1].trim()} do?`,
+                    aTemplate: (m) => `${m[1].trim()} can ${m[2].trim()}`
+                }
+            ];
+
+            factPatterns.forEach(fp => {
+                let match;
+                const regex = new RegExp(fp.pattern.source, fp.pattern.flags);
+                while ((match = regex.exec(chunk.content)) !== null) {
+                    const q = fp.qTemplate(match);
+                    const a = fp.aTemplate(match);
+                    if (q.length > 15 && a.length > 20) {
+                        pairs.push({
+                            question: q,
+                            answer: a,
+                            quality_score: 0.7,
+                            source: 'pattern'
+                        });
+                    }
+                }
+            });
+
+            // Summary question for the chunk
+            if (chunk.content.length > 100) {
+                pairs.push({
+                    question: 'Tell me about this topic.',
+                    answer: chunk.content,
+                    quality_score: 0.6,
+                    source: 'summary'
+                });
+            }
+
+            return pairs;
+        }
+
+        // Compute quality scores for a chunk
+        function computeChunkQuality(chunk, qaPairs) {
+            let score = 0.5;
+
+            // Completeness - does it have enough content?
+            if (chunk.tokens > 50) score += 0.1;
+            if (chunk.tokens > 150) score += 0.1;
+
+            // Specificity - does it have entities/facts?
+            const hasNumbers = /\d+/.test(chunk.content);
+            const hasNames = /[A-Z][a-z]+\s+[A-Z][a-z]+/.test(chunk.content);
+            if (hasNumbers) score += 0.1;
+            if (hasNames) score += 0.1;
+
+            // Q:A pairs generated
+            if (qaPairs.length > 0) score += 0.1;
+            if (qaPairs.length > 2) score += 0.1;
+
+            return Math.min(1, score);
+        }
+
+        // Process and store content as Knowledge Atoms
+        async function processAndStoreContent(content, options = {}) {
+            if (!learningDB) await initLearningDB();
+
+            const { title = 'Untitled', systemPrompt } = options;
+
+            console.log('🔬 Processing content as Knowledge Atoms...');
+
+            // Step 1: Analyze
+            const analysis = analyzeContent(content, options);
+            console.log(`   Content type: ${analysis.content_type}`);
+            console.log(`   Entities found: ${analysis.entities.length}`);
+
+            // Step 2: Chunk
+            const chunks = smartChunk(content, analysis);
+            console.log(`   Chunks created: ${chunks.length}`);
+
+            // Step 3: Create source document
+            const docId = `doc_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+            const sourceDoc = {
+                _id: docId,
+                type: 'source_document',
+                title: title,
+                content_type: analysis.content_type,
+                uploaded_at: new Date().toISOString(),
+                total_tokens: analysis.total_tokens,
+                entities: analysis.entities,
+                chunk_ids: [],
+                qa_pair_count: 0,
+                quality_score: 0
+            };
+
+            // Step 4: Process each chunk
+            let totalQuality = 0;
+            let totalQAPairs = 0;
+
+            for (const chunk of chunks) {
+                // Generate Q:A pairs
+                const qaPairs = generateQAPairsFromChunk(chunk, analysis);
+
+                // Compute embeddings
+                const contentEmbedding = await generateEmbedding(chunk.content);
+                const summaryEmbedding = chunk.content.length > 200
+                    ? await generateEmbedding(chunk.content.substring(0, 200))
+                    : contentEmbedding;
+
+                // Compute quality
+                const quality = computeChunkQuality(chunk, qaPairs);
+
+                // Store chunk
+                const chunkId = `chunk_${Date.now()}_${chunk.chunk_index}_${Math.random().toString(36).substr(2, 9)}`;
+                const chunkDoc = {
+                    _id: chunkId,
+                    type: 'knowledge_chunk',
+                    source_doc_id: docId,
+                    chunk_index: chunk.chunk_index,
+                    content: chunk.content,
+                    tokens: chunk.tokens,
+                    content_embedding: contentEmbedding ? Array.from(contentEmbedding) : null,
+                    summary_embedding: summaryEmbedding ? Array.from(summaryEmbedding) : null,
+                    quality_score: quality,
+                    qa_pair_count: qaPairs.length
+                };
+
+                await learningDB.put(chunkDoc);
+                sourceDoc.chunk_ids.push(chunkId);
+
+                // Store each Q:A pair
+                for (const qa of qaPairs) {
+                    const qEmbedding = await generateEmbedding(qa.question);
+
+                    const qaPairDoc = {
+                        _id: `qa_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+                        type: 'qa_pair',
+                        question: qa.question,
+                        answer: qa.answer,
+                        source: 'generated',
+                        source_chunk_id: chunkId,
+                        source_doc_id: docId,
+                        q_embedding: qEmbedding ? Array.from(qEmbedding) : null,
+                        quality_score: qa.quality_score,
+                        training_ready: qa.quality_score >= 0.7,
+                        training_format: {
+                            instruction: systemPrompt || 'You are a helpful cat AI assistant who lives on the moon.',
+                            input: qa.question,
+                            output: qa.answer
+                        }
+                    };
+
+                    await learningDB.put(qaPairDoc);
+                    totalQAPairs++;
+                }
+
+                totalQuality += quality;
+            }
+
+            // Update source doc
+            sourceDoc.qa_pair_count = totalQAPairs;
+            sourceDoc.quality_score = chunks.length > 0 ? totalQuality / chunks.length : 0;
+            await learningDB.put(sourceDoc);
+
+            console.log(`✅ Stored ${chunks.length} chunks with ${totalQAPairs} Q:A pairs`);
+            console.log(`   Average quality: ${(sourceDoc.quality_score * 100).toFixed(1)}%`);
+
+            return {
+                document_id: docId,
+                chunks_created: chunks.length,
+                qa_pairs_generated: totalQAPairs,
+                avg_quality: sourceDoc.quality_score
+            };
+        }
+
+        // Enhanced retrieval with quick/deep modes
+        async function findSimilarKnowledge(query, options = {}) {
+            const {
+                mode = 'auto',
+                maxResults = 5,
+                minQuality = 0.5
+            } = options;
+
+            if (!learningDB) await initLearningDB();
+
+            const queryEmbedding = await generateEmbedding(query);
+
+            // Auto-detect mode
+            let effectiveMode = mode;
+            if (mode === 'auto') {
+                const deepIndicators = /tell me|explain|describe|story|how did|what happened/i;
+                effectiveMode = deepIndicators.test(query) ? 'deep' : 'quick';
+            }
+
+            console.log(`🔍 Knowledge search (${effectiveMode} mode): "${query.substring(0, 50)}..."`);
+
+            if (effectiveMode === 'quick') {
+                // Quick: Search Q:A pairs directly
+                const result = await learningDB.find({
+                    selector: {
+                        type: 'qa_pair',
+                        quality_score: { $gte: minQuality }
+                    },
+                    limit: 100
+                });
+
+                const scored = result.docs.map(doc => ({
+                    ...doc,
+                    similarity: queryEmbedding && doc.q_embedding
+                        ? cosineSimilarity(queryEmbedding, doc.q_embedding)
+                        : 0
+                }));
+
+                scored.sort((a, b) => b.similarity - a.similarity);
+
+                return scored.slice(0, maxResults).map(doc => ({
+                    type: 'qa_pair',
+                    question: doc.question,
+                    answer: doc.answer,
+                    similarity: doc.similarity,
+                    quality: doc.quality_score
+                }));
+
+            } else {
+                // Deep: Search chunks for narrative content
+                const result = await learningDB.find({
+                    selector: {
+                        type: 'knowledge_chunk',
+                        quality_score: { $gte: minQuality }
+                    },
+                    limit: 100
+                });
+
+                const scored = result.docs.map(doc => ({
+                    ...doc,
+                    similarity: queryEmbedding && doc.content_embedding
+                        ? cosineSimilarity(queryEmbedding, doc.content_embedding)
+                        : 0
+                }));
+
+                scored.sort((a, b) => b.similarity - a.similarity);
+
+                return scored.slice(0, maxResults).map(doc => ({
+                    type: 'knowledge_chunk',
+                    content: doc.content,
+                    similarity: doc.similarity,
+                    quality: doc.quality_score,
+                    chunk_id: doc._id
+                }));
+            }
+        }
+
+        // Export training data in various formats
+        async function exportTrainingData(options = {}) {
+            const {
+                minQuality = 0.7,
+                format = 'alpaca',
+                maxPairs = null
+            } = options;
+
+            if (!learningDB) await initLearningDB();
+
+            // Get all training-ready Q:A pairs
+            const result = await learningDB.find({
+                selector: {
+                    type: 'qa_pair',
+                    training_ready: true,
+                    quality_score: { $gte: minQuality }
+                }
+            });
+
+            let pairs = result.docs;
+
+            // Also include highly rated legacy Q:A pairs
+            const legacyResult = await learningDB.find({
+                selector: {
+                    type: 'question-answer',
+                    rating: { $in: ['star3', 'star2', 'up'] }
+                }
+            });
+
+            const legacyPairs = legacyResult.docs.map(doc => ({
+                question: doc.question,
+                answer: doc.answer,
+                quality_score: doc.rating === 'star3' ? 0.95 : (doc.rating === 'star2' ? 0.85 : 0.75),
+                training_format: {
+                    instruction: doc.system_prompt || 'You are a helpful cat AI assistant who lives on the moon.',
+                    input: doc.question,
+                    output: doc.answer
+                }
+            }));
+
+            pairs = [...pairs, ...legacyPairs];
+
+            // Sort by quality
+            pairs.sort((a, b) => b.quality_score - a.quality_score);
+
+            // Limit if needed
+            if (maxPairs) {
+                pairs = pairs.slice(0, maxPairs);
+            }
+
+            // Format output
+            let exportData;
+            if (format === 'alpaca') {
+                exportData = pairs.map(p => p.training_format);
+            } else if (format === 'sharegpt') {
+                exportData = pairs.map(p => ({
+                    conversations: [
+                        { from: 'system', value: p.training_format.instruction },
+                        { from: 'human', value: p.training_format.input },
+                        { from: 'gpt', value: p.training_format.output }
+                    ]
+                }));
+            } else {
+                exportData = pairs.map(p => ({
+                    messages: [
+                        { role: 'system', content: p.training_format.instruction },
+                        { role: 'user', content: p.training_format.input },
+                        { role: 'assistant', content: p.training_format.output }
+                    ]
+                }));
+            }
+
+            const exportPackage = {
+                version: '2.0',
+                format: format,
+                exported_at: new Date().toISOString(),
+                stats: {
+                    total_pairs: pairs.length,
+                    avg_quality: pairs.length > 0
+                        ? pairs.reduce((sum, p) => sum + p.quality_score, 0) / pairs.length
+                        : 0
+                },
+                data: exportData
+            };
+
+            console.log(`📦 Exported ${pairs.length} training pairs (${format} format)`);
+
+            return exportPackage;
+        }
+
+        // Get Knowledge Atom statistics
+        async function getKnowledgeStats() {
+            if (!learningDB) await initLearningDB();
+
+            try {
+                const result = await learningDB.allDocs({ include_docs: true });
+                const docs = result.rows.map(r => r.doc);
+
+                return {
+                    source_documents: docs.filter(d => d.type === 'source_document').length,
+                    knowledge_chunks: docs.filter(d => d.type === 'knowledge_chunk').length,
+                    qa_pairs: docs.filter(d => d.type === 'qa_pair').length,
+                    legacy_qa: docs.filter(d => d.type === 'question-answer').length,
+                    training_ready: docs.filter(d => d.type === 'qa_pair' && d.training_ready).length
+                };
+            } catch (error) {
+                console.error('Error getting knowledge stats:', error);
+                return { source_documents: 0, knowledge_chunks: 0, qa_pairs: 0, legacy_qa: 0, training_ready: 0 };
+            }
+        }
+
+        // ═══════════════════════════════════════════════════════════════
+        // END KNOWLEDGE ATOM SYSTEM
+        // ═══════════════════════════════════════════════════════════════
 
         // Show learning notification
         function showLearningNotification(message) {
