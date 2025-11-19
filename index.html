@@ -1650,6 +1650,7 @@
                     <option value="smollm2-1.7b">SmolLM2-1.7B (Efficient, ~1GB)</option>
                     <option value="phi3-mini">Phi-3-mini-4k (Reasoning, ~2GB)</option>
                     <option value="phi3.5-mini">Phi-3.5-mini (Reasoning, ~2GB)</option>
+                    <option value="phi4-mini">Phi-4-mini (Best Quality, ~2.5GB) ⭐</option>
                     <option value="qwen3-4b">Qwen3-4B-Thinking (8GB+ VRAM, ~2GB)</option>
                 </select>
                 <div class="model-info" id="modelInfo">Tiny & fast - great for quick responses</div>
@@ -2013,6 +2014,14 @@ For narratives, just paste the text directly."></textarea>
                 f32: 'Phi-3.5-mini-instruct-q4f32_1-MLC',
                 size: '~2GB',
                 description: 'Newer Phi variant - improved reasoning & coding',
+                requiresCustomConfig: false
+            },
+            'phi4-mini': {
+                name: 'Phi-4-mini',
+                f16: 'Phi-4-mini-instruct-q4f16_1-MLC',
+                f32: 'Phi-4-mini-instruct-q4f32_1-MLC',
+                size: '~2.5GB',
+                description: 'Latest Phi model - best quality/performance balance (6GB VRAM)',
                 requiresCustomConfig: false
             },
             'qwen3-4b': {
