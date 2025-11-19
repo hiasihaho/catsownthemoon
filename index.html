@@ -3070,32 +3070,53 @@ For narratives, just paste the text directly."></textarea>
             let totalQuality = 0;
             let totalQAPairs = 0;
 
-            for (const chunk of chunks) {
-                // Generate Q:A pairs
-                const qaPairs = generateQAPairsFromChunk(chunk, analysis);
+            // HYBRID STRATEGY: Only generate Q&A for FAQ content
+            // For narrative/article content, use chunk-based RAG (store chunks only)
+            const shouldGenerateQA = analysis.content_type === 'faq';
 
-                // Compute embeddings
+            if (!shouldGenerateQA) {
+                console.log(`   📦 Chunk-based RAG mode (${analysis.content_type} content)`);
+            }
+
+            for (const chunk of chunks) {
+                // Compute embeddings for chunk
                 const contentEmbedding = await generateEmbedding(chunk.content);
                 const summaryEmbedding = chunk.content.length > 200
                     ? await generateEmbedding(chunk.content.substring(0, 200))
                     : contentEmbedding;
 
+                // Generate Q:A pairs only for FAQ content
+                const qaPairs = shouldGenerateQA ? generateQAPairsFromChunk(chunk, analysis) : [];
+
                 // Compute quality
                 const quality = computeChunkQuality(chunk, qaPairs);
 
-                // Store chunk
+                // Store chunk with enhanced metadata for chunk-based RAG
                 const chunkId = `chunk_${Date.now()}_${chunk.chunk_index}_${Math.random().toString(36).substr(2, 9)}`;
+
+                // Generate tags for chunk (for tag-filtered search)
+                const { tags: chunkTags, primaryTag: chunkPrimaryTag } = autoGenerateStructuredTags(
+                    chunk.content.substring(0, 200),  // Use first 200 chars for tag detection
+                    chunk.content,
+                    'general'
+                );
+
                 const chunkDoc = {
                     _id: chunkId,
                     type: 'knowledge_chunk',
                     source_doc_id: docId,
+                    source_title: title,
                     chunk_index: chunk.chunk_index,
                     content: chunk.content,
                     tokens: chunk.tokens,
                     content_embedding: contentEmbedding ? Array.from(contentEmbedding) : null,
                     summary_embedding: summaryEmbedding ? Array.from(summaryEmbedding) : null,
                     quality_score: quality,
-                    qa_pair_count: qaPairs.length
+                    qa_pair_count: qaPairs.length,
+                    // Add tags for chunk-based search
+                    tags: chunkTags,
+                    primary_tag: chunkPrimaryTag,
+                    timestamp: Date.now()
                 };
 
                 await learningDB.put(chunkDoc);
@@ -3932,7 +3953,13 @@ For narratives, just paste the text directly."></textarea>
 
                     if (highSimilarity) {
                         // High confidence - use 1 example
-                        systemPrompt += `\n\nHere's how you answered a very similar question:\nQ: "${bestMatch.question}"\nA: "${bestMatch.answer}"`;
+                        // Different formatting for chunks vs Q&A pairs
+                        if (bestMatch.resultType === 'chunk') {
+                            const sourceTitle = bestMatch.source_title || 'Knowledge base';
+                            systemPrompt += `\n\nHere is highly relevant information from your knowledge:\n\n[From: ${sourceTitle}]\n${bestMatch.answer}`;
+                        } else {
+                            systemPrompt += `\n\nHere's how you answered a very similar question:\nQ: "${bestMatch.question}"\nA: "${bestMatch.answer}"`;
+                        }
 
                         // Adjust instruction based on RAG influence
                         if (ragInfluence >= 0.8) {
@@ -3945,15 +3972,31 @@ For narratives, just paste the text directly."></textarea>
                             systemPrompt += '\n\nAnswer the current question in the same style and tone as the example.';
                         }
                         console.log(`   ✅ HIGH CONFIDENCE (${bestMatch.similarity.toFixed(3)})`);
-                        console.log(`   Strategy: One-shot learning with best match`);
+                        const strategyLabel = bestMatch.resultType === 'chunk' ? 'Chunk-based reference' : 'One-shot learning with best match';
+                        console.log(`   Strategy: ${strategyLabel}`);
                         console.log(`   Context Q: "${bestMatch.question}"`);
                         console.log(`   Context A: "${bestMatch.answer.substring(0, 80)}${bestMatch.answer.length > 80 ? '...' : ''}"`);
                     } else {
                         // Medium/low confidence - use 2-3 examples for more context
                         const exampleCount = Math.min(similarPairs.length, ragInfluence > 0.6 ? 5 : 3);
-                        systemPrompt += `\n\nHere are relevant examples from your knowledge:`;
-                        for (let i = 0; i < exampleCount; i++) {
-                            systemPrompt += `\n\nExample ${i+1}:\nQ: "${similarPairs[i].question}"\nA: "${similarPairs[i].answer}"`;
+
+                        // Separate Q&A pairs from content chunks
+                        const qaPairs = similarPairs.slice(0, exampleCount).filter(p => p.resultType !== 'chunk');
+                        const chunks = similarPairs.slice(0, exampleCount).filter(p => p.resultType === 'chunk');
+
+                        if (qaPairs.length > 0) {
+                            systemPrompt += `\n\nHere are relevant examples from your knowledge:`;
+                            for (let i = 0; i < qaPairs.length; i++) {
+                                systemPrompt += `\n\nExample ${i+1}:\nQ: "${qaPairs[i].question}"\nA: "${qaPairs[i].answer}"`;
+                            }
+                        }
+
+                        if (chunks.length > 0) {
+                            systemPrompt += `\n\nHere is relevant reference information:`;
+                            for (let i = 0; i < chunks.length; i++) {
+                                const sourceTitle = chunks[i].source_title || 'Knowledge base';
+                                systemPrompt += `\n\n[From: ${sourceTitle}]\n${chunks[i].answer}`;
+                            }
                         }
 
                         // Adjust instruction based on RAG influence
@@ -3967,9 +4010,10 @@ For narratives, just paste the text directly."></textarea>
                             systemPrompt += '\n\nUse these as reference to answer the current question. Stay consistent with this friendly, cat-themed style.';
                         }
                         console.log(`   ✅ MEDIUM CONFIDENCE (best: ${bestMatch.similarity.toFixed(3)})`);
-                        console.log(`   Strategy: Multi-shot with ${exampleCount} examples for broader context`);
+                        console.log(`   Strategy: Multi-shot with ${qaPairs.length} Q&A + ${chunks.length} chunks`);
                         similarPairs.slice(0, exampleCount).forEach((p, i) => {
-                            console.log(`   Example ${i+1}: "${p.question}" (${p.similarity.toFixed(3)})`);
+                            const typeLabel = p.resultType === 'chunk' ? '📦' : '❓';
+                            console.log(`   ${typeLabel} ${i+1}: "${p.question}" (${p.similarity.toFixed(3)})`);
                         });
                     }
                 } else {
@@ -4419,54 +4463,126 @@ Your personality:
             const questionCategory = detectCategory(displayQuestion);
             console.log(`   Category: ${questionCategory}`);
 
-            // 🚀 MANGO QUERY: Pre-filter at database level
+            // 🚀 HYBRID RAG: Query both Q&A pairs AND content chunks
             const candidateLimit = 100;
             let pairs = [];
+            let chunks = [];
 
             try {
-                // Build selector for unified knowledge schema
-                const selector = {
+                // Query 1: Knowledge Q&A pairs (unified schema)
+                const qaSelector = {
                     type: 'knowledge',
-                    base_quality: { $gte: 30 }  // Minimum quality threshold
+                    base_quality: { $gte: 30 }
                 };
-
-                // Add tag filter if specified
                 if (tagFilters.length > 0) {
-                    selector.primary_tag = { $in: tagFilters };
+                    qaSelector.primary_tag = { $in: tagFilters };
                 }
 
-                const result = await learningDB.find({
-                    selector,
+                const qaResult = await learningDB.find({
+                    selector: qaSelector,
                     limit: candidateLimit
                 });
-                pairs = result.docs;
-                console.log(`   🎯 Mango pre-filtered: ${pairs.length} candidates (from database)`);
+                pairs = qaResult.docs;
+
+                // Query 2: Knowledge chunks (for narrative/article content)
+                const chunkSelector = {
+                    type: 'knowledge_chunk'
+                };
+                if (tagFilters.length > 0) {
+                    chunkSelector.primary_tag = { $in: tagFilters };
+                }
+
+                const chunkResult = await learningDB.find({
+                    selector: chunkSelector,
+                    limit: candidateLimit
+                });
+                chunks = chunkResult.docs;
+
+                console.log(`   🎯 Mango pre-filtered: ${pairs.length} Q&A pairs + ${chunks.length} chunks`);
+
+                // Enhanced tag filtering: Also search within tags.domain, tags.ui, etc.
+                // This catches documents where tag is in nested array but not primary_tag
+                if (tagFilters.length > 0) {
+                    const matchesAnyTag = (doc) => {
+                        // Check primary_tag
+                        if (tagFilters.includes(doc.primary_tag)) return true;
+
+                        // Check all tag categories
+                        if (doc.tags) {
+                            for (const category of Object.keys(doc.tags)) {
+                                const categoryTags = doc.tags[category];
+                                if (Array.isArray(categoryTags)) {
+                                    if (categoryTags.some(t => tagFilters.includes(t))) return true;
+                                }
+                            }
+                        }
+                        return false;
+                    };
+
+                    // Re-filter with enhanced tag matching
+                    // First, get unfiltered candidates to supplement
+                    const unfilteredQA = await learningDB.find({
+                        selector: { type: 'knowledge', base_quality: { $gte: 30 } },
+                        limit: candidateLimit
+                    });
+                    const unfilteredChunks = await learningDB.find({
+                        selector: { type: 'knowledge_chunk' },
+                        limit: candidateLimit
+                    });
+
+                    pairs = unfilteredQA.docs.filter(matchesAnyTag);
+                    chunks = unfilteredChunks.docs.filter(matchesAnyTag);
+
+                    console.log(`   🏷️ Enhanced tag filter: ${pairs.length} Q&A + ${chunks.length} chunks match tags in any category`);
+                }
             } catch (error) {
                 // Fallback: if Mango query fails, get all and filter manually
                 console.warn('   ⚠️ Mango query failed, falling back to allDocs:', error);
                 const allResult = await learningDB.allDocs({ include_docs: true });
-                pairs = allResult.rows
-                    .map(row => row.doc)
-                    .filter(doc =>
-                        doc.type === 'knowledge' &&
-                        doc.base_quality >= 30 &&
-                        (tagFilters.length === 0 || tagFilters.includes(doc.primary_tag))
-                    );
+                const allDocs = allResult.rows.map(row => row.doc);
+
+                // Enhanced tag matching for fallback
+                const matchesAnyTag = (doc) => {
+                    if (tagFilters.length === 0) return true;
+
+                    if (tagFilters.includes(doc.primary_tag)) return true;
+
+                    if (doc.tags) {
+                        for (const category of Object.keys(doc.tags)) {
+                            const categoryTags = doc.tags[category];
+                            if (Array.isArray(categoryTags)) {
+                                if (categoryTags.some(t => tagFilters.includes(t))) return true;
+                            }
+                        }
+                    }
+                    return false;
+                };
+
+                pairs = allDocs.filter(doc =>
+                    doc.type === 'knowledge' &&
+                    doc.base_quality >= 30 &&
+                    matchesAnyTag(doc)
+                );
+
+                chunks = allDocs.filter(doc =>
+                    doc.type === 'knowledge_chunk' &&
+                    matchesAnyTag(doc)
+                );
             }
 
-            console.log(`   Database candidates: ${pairs.length}`);
+            console.log(`   Database candidates: ${pairs.length} Q&A + ${chunks.length} chunks`);
 
             // Generate embedding for the question
             const questionEmbedding = await generateEmbedding(question);
             console.log(`   Embedding: ${questionEmbedding ? '✓ Generated (384-dim)' : '✗ Using keyword fallback'}`);
 
-            const scored = await Promise.all(pairs.map(async pair => {
+            // Score Q&A pairs
+            const scoredPairs = await Promise.all(pairs.map(async pair => {
                 let similarity = 0;
                 let method = '';
 
                 // Try semantic similarity first (if embeddings available)
                 if (questionEmbedding && pair.embedding) {
-                    // Cosine similarity between embeddings
                     similarity = cosineSimilarity(questionEmbedding, pair.embedding);
                     method = 'semantic';
                 } else {
@@ -4477,6 +4593,48 @@ Your personality:
                     similarity = commonWords / Math.max(questionWords.length, pairWords.length);
                     method = 'keyword';
                 }
+
+                return { ...pair, similarity, method, resultType: 'qa' };
+            }));
+
+            // Score content chunks
+            const scoredChunks = await Promise.all(chunks.map(async chunk => {
+                let similarity = 0;
+                let method = '';
+
+                // Try semantic similarity with content embedding
+                if (questionEmbedding && chunk.content_embedding) {
+                    similarity = cosineSimilarity(questionEmbedding, chunk.content_embedding);
+                    method = 'semantic';
+                } else {
+                    // Fallback to keyword matching against content
+                    const questionWords = question.toLowerCase().split(/\s+/);
+                    const contentWords = chunk.content.toLowerCase().split(/\s+/);
+                    const commonWords = questionWords.filter(w => contentWords.includes(w)).length;
+                    similarity = commonWords / Math.max(questionWords.length, contentWords.length);
+                    method = 'keyword';
+                }
+
+                // Convert chunk to Q&A-like format for unified handling
+                // Create a pseudo-question from the source title
+                const pseudoQuestion = `Information from: ${chunk.source_title || 'Unknown source'}`;
+
+                return {
+                    ...chunk,
+                    question: pseudoQuestion,
+                    answer: chunk.content,
+                    similarity,
+                    method,
+                    resultType: 'chunk',
+                    base_quality: 70 // Default quality for chunks
+                };
+            }));
+
+            // Combine all results
+            const allScored = [...scoredPairs, ...scoredChunks];
+
+            const scored = allScored.map(item => {
+                let { similarity } = item;
 
                 const originalSimilarity = similarity;
 
@@ -4548,9 +4706,10 @@ Your personality:
                 if (p.contextBoost) boostLabels.push(`+15% 🎯 context`);
                 const boostLabel = boostLabels.length > 0 ? ` [${boostLabels.join(', ')}]` : '';
                 const methodLabel = p.method === 'semantic' ? '🧠' : '🔤';
-                // Show quality score for unified schema
+                // Show type (Q&A vs chunk) and quality score
+                const typeLabel = p.resultType === 'chunk' ? '📦' : '❓';
                 const qualityLabel = p.base_quality ? `Q:${p.base_quality}` : (p.user_rating || '⚪');
-                console.log(`   ${i+1}. ${methodLabel} Score: ${p.similarity.toFixed(3)}${boostLabel} | ${qualityLabel}`);
+                console.log(`   ${i+1}. ${typeLabel}${methodLabel} Score: ${p.similarity.toFixed(3)}${boostLabel} | ${qualityLabel}`);
                 console.log(`      Q: "${p.question}"`);
                 console.log(`      A: "${answerPreview}"`);
             });
