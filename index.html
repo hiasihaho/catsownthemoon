@@ -1685,11 +1685,17 @@
             },
             'deepseek-r1-1.5b': {
                 name: 'DeepSeek-R1-1.5B',
-                f16: 'DeepSeek-R1-Distill-Qwen-1.5B-q4f16_1-MLC',
+                f16: 'DeepSeek-R1-Distill-Qwen-1.5B-q4f32_1-MLC',
                 f32: 'DeepSeek-R1-Distill-Qwen-1.5B-q4f32_1-MLC',
                 size: '~1GB',
                 description: 'Thinking model - shows reasoning in <think> tags',
-                requiresCustomConfig: false
+                requiresCustomConfig: true,
+                customConfig: {
+                    model: "https://huggingface.co/mlc-ai/DeepSeek-R1-Distill-Qwen-1.5B-q4f32_1-MLC",
+                    model_id: "DeepSeek-R1-Distill-Qwen-1.5B-q4f32_1-MLC",
+                    model_lib_suffix: '/Qwen2-1.5B-Instruct-q4f32_1-ctx4k_cs1k-webgpu.wasm',
+                    context_window_size: 4096
+                }
             },
             'qwen2.5-1.5b': {
                 name: 'Qwen2.5-1.5B',
