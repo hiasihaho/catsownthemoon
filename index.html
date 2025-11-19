@@ -4686,8 +4686,8 @@ Your personality:
                 // Clip to max 1.0 (cosine similarity cannot exceed 1.0)
                 similarity = Math.min(similarity, 1.0);
 
-                return { ...pair, similarity, category: pairCategory, originalSimilarity, categoryBoost, method, qualityMultiplier, qualityBoost, contextBoost, contextMatch };
-            }));
+                return { ...item, similarity, category: pairCategory, originalSimilarity, categoryBoost, method: item.method, qualityMultiplier, qualityBoost, contextBoost, contextMatch };
+            });
 
             // Log top candidates before filtering
             const topCandidates = scored
