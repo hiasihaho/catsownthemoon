@@ -722,6 +722,227 @@
             margin-top: 4px;
         }
 
+        /* Knowledge Atom Upload Dialog */
+        .knowledge-upload-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.5);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 10001;
+        }
+
+        .knowledge-upload-overlay.active {
+            display: flex;
+        }
+
+        .knowledge-upload-dialog {
+            background: white;
+            border-radius: 16px;
+            width: 90%;
+            max-width: 600px;
+            max-height: 80vh;
+            overflow-y: auto;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+        }
+
+        .knowledge-upload-header {
+            padding: 20px;
+            border-bottom: 1px solid #e0e0e0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .knowledge-upload-header h3 {
+            margin: 0;
+            font-size: 18px;
+            color: #333;
+        }
+
+        .knowledge-upload-close {
+            background: none;
+            border: none;
+            font-size: 24px;
+            cursor: pointer;
+            color: #999;
+            padding: 0;
+            line-height: 1;
+        }
+
+        .knowledge-upload-close:hover {
+            color: #333;
+        }
+
+        .knowledge-upload-body {
+            padding: 20px;
+        }
+
+        .upload-field {
+            margin-bottom: 15px;
+        }
+
+        .upload-field label {
+            display: block;
+            font-size: 12px;
+            font-weight: 600;
+            color: #555;
+            margin-bottom: 6px;
+        }
+
+        .upload-field input[type="text"],
+        .upload-field select,
+        .upload-field textarea {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            font-size: 14px;
+            box-sizing: border-box;
+        }
+
+        .upload-field textarea {
+            min-height: 150px;
+            resize: vertical;
+            font-family: inherit;
+        }
+
+        .upload-field textarea:focus,
+        .upload-field input:focus,
+        .upload-field select:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.2);
+        }
+
+        .upload-options {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 15px;
+        }
+
+        .upload-options label {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+            color: #666;
+            cursor: pointer;
+        }
+
+        .upload-options input[type="checkbox"] {
+            width: 16px;
+            height: 16px;
+        }
+
+        .upload-preview {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 15px;
+            display: none;
+        }
+
+        .upload-preview.active {
+            display: block;
+        }
+
+        .upload-preview h4 {
+            margin: 0 0 10px 0;
+            font-size: 13px;
+            color: #333;
+        }
+
+        .upload-preview-stats {
+            font-size: 12px;
+            color: #666;
+            line-height: 1.6;
+        }
+
+        .upload-preview-stats strong {
+            color: #333;
+        }
+
+        .upload-actions {
+            display: flex;
+            gap: 10px;
+        }
+
+        .upload-btn {
+            flex: 1;
+            padding: 12px;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .upload-btn-secondary {
+            background: #f0f0f0;
+            color: #333;
+        }
+
+        .upload-btn-secondary:hover {
+            background: #e0e0e0;
+        }
+
+        .upload-btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .upload-btn-primary:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+
+        .upload-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .knowledge-stats-bar {
+            display: flex;
+            gap: 8px;
+            padding: 8px 15px;
+            background: #f0f4ff;
+            border-bottom: 1px solid #e0e0e0;
+            font-size: 10px;
+            color: #666;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .knowledge-stats-bar span {
+            background: white;
+            padding: 3px 8px;
+            border-radius: 4px;
+            border: 1px solid #ddd;
+        }
+
+        .add-knowledge-btn {
+            background: none;
+            border: 1px solid #667eea;
+            color: #667eea;
+            padding: 4px 10px;
+            border-radius: 4px;
+            font-size: 10px;
+            cursor: pointer;
+            margin-left: auto;
+        }
+
+        .add-knowledge-btn:hover {
+            background: #667eea;
+            color: white;
+        }
+
         .action-buttons {
             display: flex;
             gap: 10px;
@@ -1438,6 +1659,12 @@
                     <label for="showThinkingToggle">Show reasoning/thinking process</label>
                 </div>
             </div>
+            <div class="knowledge-stats-bar" id="knowledgeStatsBar">
+                <span id="kbDocsCount">Docs: 0</span>
+                <span id="kbChunksCount">Chunks: 0</span>
+                <span id="kbPairsCount">Q&A: 0</span>
+                <button class="add-knowledge-btn" id="addKnowledgeBtn">+ Add Knowledge</button>
+            </div>
             <div class="model-status" id="modelStatus">
                 Initializing AI... ⏳
                 <div class="progress-bar">
@@ -1448,6 +1675,65 @@
             <div class="chat-input-container">
                 <input type="text" class="chat-input" id="chatInput" placeholder="Ask the cat anything..." disabled>
                 <button class="send-btn" id="sendBtn" disabled>Send</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Knowledge Upload Dialog -->
+    <div class="knowledge-upload-overlay" id="knowledgeUploadOverlay">
+        <div class="knowledge-upload-dialog">
+            <div class="knowledge-upload-header">
+                <h3>Add Knowledge</h3>
+                <button class="knowledge-upload-close" id="closeUploadBtn">&times;</button>
+            </div>
+            <div class="knowledge-upload-body">
+                <div class="upload-field">
+                    <label for="uploadTitle">Title</label>
+                    <input type="text" id="uploadTitle" placeholder="e.g., Moon Cat History">
+                </div>
+
+                <div class="upload-field">
+                    <label for="uploadContentType">Content Type</label>
+                    <select id="uploadContentType">
+                        <option value="auto">Auto-detect</option>
+                        <option value="narrative">Story / Narrative</option>
+                        <option value="faq">Q&A / FAQ</option>
+                        <option value="article">Article</option>
+                        <option value="facts">Facts / List</option>
+                    </select>
+                </div>
+
+                <div class="upload-field">
+                    <label for="uploadContent">Content</label>
+                    <textarea id="uploadContent" placeholder="Paste your content here...
+
+For Q&A format use:
+Q: Question here
+A: Answer here
+
+For narratives, just paste the text directly."></textarea>
+                </div>
+
+                <div class="upload-options">
+                    <label>
+                        <input type="checkbox" id="uploadAutoQA" checked>
+                        Auto-generate Q&A pairs
+                    </label>
+                    <label>
+                        <input type="checkbox" id="uploadPrepareTraining" checked>
+                        Prepare for training
+                    </label>
+                </div>
+
+                <div class="upload-preview" id="uploadPreview">
+                    <h4>Processing Preview</h4>
+                    <div class="upload-preview-stats" id="uploadPreviewStats"></div>
+                </div>
+
+                <div class="upload-actions">
+                    <button class="upload-btn upload-btn-secondary" id="previewUploadBtn">Preview</button>
+                    <button class="upload-btn upload-btn-primary" id="processUploadBtn">Process & Store</button>
+                </div>
             </div>
         </div>
     </div>
@@ -2725,6 +3011,147 @@
 
         // ═══════════════════════════════════════════════════════════════
         // END KNOWLEDGE ATOM SYSTEM
+        // ═══════════════════════════════════════════════════════════════
+
+        // ═══════════════════════════════════════════════════════════════
+        // KNOWLEDGE UPLOAD UI
+        // ═══════════════════════════════════════════════════════════════
+
+        // DOM elements for upload UI
+        const knowledgeUploadOverlay = document.getElementById('knowledgeUploadOverlay');
+        const addKnowledgeBtn = document.getElementById('addKnowledgeBtn');
+        const closeUploadBtn = document.getElementById('closeUploadBtn');
+        const uploadTitle = document.getElementById('uploadTitle');
+        const uploadContentType = document.getElementById('uploadContentType');
+        const uploadContent = document.getElementById('uploadContent');
+        const uploadPreview = document.getElementById('uploadPreview');
+        const uploadPreviewStats = document.getElementById('uploadPreviewStats');
+        const previewUploadBtn = document.getElementById('previewUploadBtn');
+        const processUploadBtn = document.getElementById('processUploadBtn');
+        const kbDocsCount = document.getElementById('kbDocsCount');
+        const kbChunksCount = document.getElementById('kbChunksCount');
+        const kbPairsCount = document.getElementById('kbPairsCount');
+
+        // Open upload dialog
+        addKnowledgeBtn.addEventListener('click', () => {
+            knowledgeUploadOverlay.classList.add('active');
+        });
+
+        // Close upload dialog
+        closeUploadBtn.addEventListener('click', () => {
+            knowledgeUploadOverlay.classList.remove('active');
+        });
+
+        // Close on overlay click
+        knowledgeUploadOverlay.addEventListener('click', (e) => {
+            if (e.target === knowledgeUploadOverlay) {
+                knowledgeUploadOverlay.classList.remove('active');
+            }
+        });
+
+        // Preview processing
+        previewUploadBtn.addEventListener('click', () => {
+            const content = uploadContent.value.trim();
+            if (!content) {
+                alert('Please enter some content first.');
+                return;
+            }
+
+            const contentType = uploadContentType.value;
+            const analysis = analyzeContent(content, {
+                content_type: contentType !== 'auto' ? contentType : null
+            });
+
+            const chunks = smartChunk(content, analysis);
+            const estimatedQA = chunks.reduce((sum, chunk) => {
+                return sum + (chunk.is_qa ? 1 : Math.min(3, analysis.entities.filter(e =>
+                    chunk.content.toLowerCase().includes(e.name.toLowerCase())
+                ).length + 2));
+            }, 0);
+
+            uploadPreviewStats.innerHTML = `
+                <div>Content type: <strong>${analysis.content_type}</strong></div>
+                <div>Total tokens: <strong>~${analysis.total_tokens}</strong></div>
+                <div>Entities found: <strong>${analysis.entities.length}</strong> (${analysis.entities.slice(0, 3).map(e => e.name).join(', ')}${analysis.entities.length > 3 ? '...' : ''})</div>
+                <div>Chunks to create: <strong>${chunks.length}</strong></div>
+                <div>Estimated Q&A pairs: <strong>~${estimatedQA}</strong></div>
+            `;
+
+            uploadPreview.classList.add('active');
+        });
+
+        // Process and store
+        processUploadBtn.addEventListener('click', async () => {
+            const content = uploadContent.value.trim();
+            if (!content) {
+                alert('Please enter some content first.');
+                return;
+            }
+
+            const title = uploadTitle.value.trim() || 'Untitled';
+            const contentType = uploadContentType.value;
+
+            processUploadBtn.disabled = true;
+            processUploadBtn.textContent = 'Processing...';
+
+            try {
+                const result = await processAndStoreContent(content, {
+                    title: title,
+                    content_type: contentType !== 'auto' ? contentType : null,
+                    systemPrompt: currentSystemPrompt
+                });
+
+                // Show success
+                uploadPreviewStats.innerHTML = `
+                    <div style="color: #22c55e; font-weight: bold;">✅ Successfully processed!</div>
+                    <div>Chunks created: <strong>${result.chunks_created}</strong></div>
+                    <div>Q&A pairs generated: <strong>${result.qa_pairs_generated}</strong></div>
+                    <div>Average quality: <strong>${(result.avg_quality * 100).toFixed(1)}%</strong></div>
+                `;
+                uploadPreview.classList.add('active');
+
+                // Update stats bar
+                await updateKnowledgeStats();
+
+                // Clear form after brief delay
+                setTimeout(() => {
+                    uploadContent.value = '';
+                    uploadTitle.value = '';
+                    uploadPreview.classList.remove('active');
+                }, 3000);
+
+                showLearningNotification(`📚 Added ${result.qa_pairs_generated} Q&A pairs!`);
+
+            } catch (error) {
+                console.error('Error processing content:', error);
+                uploadPreviewStats.innerHTML = `
+                    <div style="color: #ef4444; font-weight: bold;">❌ Error processing content</div>
+                    <div>${error.message}</div>
+                `;
+                uploadPreview.classList.add('active');
+            }
+
+            processUploadBtn.disabled = false;
+            processUploadBtn.textContent = 'Process & Store';
+        });
+
+        // Update knowledge stats bar
+        async function updateKnowledgeStats() {
+            try {
+                const stats = await getKnowledgeStats();
+                kbDocsCount.textContent = `Docs: ${stats.source_documents}`;
+                kbChunksCount.textContent = `Chunks: ${stats.knowledge_chunks}`;
+                kbPairsCount.textContent = `Q&A: ${stats.qa_pairs + stats.legacy_qa}`;
+            } catch (error) {
+                console.error('Error updating knowledge stats:', error);
+            }
+        }
+
+        // Initialize stats on load
+        setTimeout(updateKnowledgeStats, 2000);
+
+        // ═══════════════════════════════════════════════════════════════
+        // END KNOWLEDGE UPLOAD UI
         // ═══════════════════════════════════════════════════════════════
 
         // Show learning notification
