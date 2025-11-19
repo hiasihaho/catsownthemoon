@@ -4792,19 +4792,24 @@ Made with 🐱 and 🌙
                 uploadStatus.style.color = '#78350f';
 
                 // Chunk the text
-                const chunks = intelligentChunk(text);
+                // Use new Knowledge Atom system
+                const analysis = analyzeContent(text);
+                const chunks = smartChunk(text, analysis);
+
                 console.log(`\n📄 TEXT UPLOAD PROCESSING`);
                 console.log(`   Total text length: ${text.length} characters`);
+                console.log(`   Content type: ${analysis.content_type}`);
                 console.log(`   Split into ${chunks.length} chunks\n`);
 
                 let totalPairs = 0;
                 let processed = 0;
 
                 for (let i = 0; i < chunks.length; i++) {
-                    const chunk = chunks[i];
+                    const chunkData = chunks[i];
+                    const chunk = chunkData.content;
 
-                    // Generate Q&A pairs from chunk
-                    const qaPairs = generateQAPairsFromChunk(chunk, i);
+                    // Generate Q&A pairs from chunk using Knowledge Atom system
+                    const qaPairs = generateQAPairsFromChunk(chunkData, analysis);
 
                     console.log(`📦 Chunk ${i + 1}/${chunks.length}:`);
                     console.log(`   Text preview: "${chunk.substring(0, 100)}..."`);
