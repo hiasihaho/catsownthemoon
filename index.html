@@ -2560,37 +2560,58 @@ For narratives, just paste the text directly."></textarea>
                     }
                 });
             } else {
-                // Chunk by sentences, respecting token limits
-                const sentences = content.match(/[^.!?]+[.!?]+/g) || [content];
-                let currentChunk = [];
-                let currentTokens = 0;
-                let chunkIndex = 0;
+                // Chunk by sentences OR paragraphs OR line breaks, respecting token limits
+                // Split by: sentences (.!?), double newlines, or single newlines with dates
+                const segments = content.split(/(?<=[.!?])\s+|(?:\n\n+)|(?:\n(?=\d))/g)
+                    .map(s => s.trim())
+                    .filter(s => s.length > 0);
 
-                sentences.forEach(sentence => {
-                    const sentenceTokens = Math.ceil(sentence.length / 4);
+                // If no good splits, fall back to character-based chunking
+                if (segments.length <= 1 && content.length > MAX_TOKENS * 4) {
+                    // Force split by approximate token count
+                    const chunkSize = MAX_TOKENS * 4; // ~500 tokens in chars
+                    for (let i = 0; i < content.length; i += chunkSize) {
+                        const chunkContent = content.substring(i, Math.min(i + chunkSize, content.length)).trim();
+                        if (chunkContent) {
+                            chunks.push({
+                                content: chunkContent,
+                                chunk_index: chunks.length,
+                                is_qa: false,
+                                tokens: Math.ceil(chunkContent.length / 4)
+                            });
+                        }
+                    }
+                } else {
+                    let currentChunk = [];
+                    let currentTokens = 0;
+                    let chunkIndex = 0;
 
-                    if (currentTokens + sentenceTokens > MAX_TOKENS && currentTokens > 0) {
+                    segments.forEach(segment => {
+                        const segmentTokens = Math.ceil(segment.length / 4);
+
+                        if (currentTokens + segmentTokens > MAX_TOKENS && currentTokens > 0) {
+                            chunks.push({
+                                content: currentChunk.join(' ').trim(),
+                                chunk_index: chunkIndex++,
+                                is_qa: false,
+                                tokens: currentTokens
+                            });
+                            currentChunk = [];
+                            currentTokens = 0;
+                        }
+
+                        currentChunk.push(segment);
+                        currentTokens += segmentTokens;
+                    });
+
+                    if (currentChunk.length > 0) {
                         chunks.push({
                             content: currentChunk.join(' ').trim(),
-                            chunk_index: chunkIndex++,
+                            chunk_index: chunkIndex,
                             is_qa: false,
                             tokens: currentTokens
                         });
-                        currentChunk = [];
-                        currentTokens = 0;
                     }
-
-                    currentChunk.push(sentence.trim());
-                    currentTokens += sentenceTokens;
-                });
-
-                if (currentChunk.length > 0) {
-                    chunks.push({
-                        content: currentChunk.join(' ').trim(),
-                        chunk_index: chunkIndex,
-                        is_qa: false,
-                        tokens: currentTokens
-                    });
                 }
             }
 
@@ -4057,16 +4078,26 @@ Your personality:
             let pairs = [];
 
             try {
+                // Search both old Q&A pairs and new Knowledge Atom qa_pairs
                 const result = await learningDB.find({
                     selector: {
-                        type: 'question-answer',
-                        rating: { $in: ['star3', 'star2', 'star1', 'up'] }, // Exclude thumbs-down
                         $or: [
-                            { category: questionCategory },
-                            { category: 'general' }
+                            // Old format: question-answer with ratings
+                            {
+                                type: 'question-answer',
+                                rating: { $in: ['star3', 'star2', 'star1', 'up'] },
+                                $or: [
+                                    { category: questionCategory },
+                                    { category: 'general' }
+                                ]
+                            },
+                            // New format: Knowledge Atom qa_pairs with quality_score
+                            {
+                                type: 'qa_pair',
+                                quality_score: { $gte: 30 } // Minimum quality threshold
+                            }
                         ]
                     },
-                    // Note: No sort here - we sort by similarity after cosine calculation anyway
                     limit: candidateLimit
                 });
                 pairs = result.docs;
@@ -4077,7 +4108,10 @@ Your personality:
                 const allResult = await learningDB.allDocs({ include_docs: true });
                 pairs = allResult.rows
                     .map(row => row.doc)
-                    .filter(doc => doc.type === 'question-answer' && doc.rating && doc.rating !== 'down');
+                    .filter(doc =>
+                        (doc.type === 'question-answer' && doc.rating && doc.rating !== 'down') ||
+                        (doc.type === 'qa_pair' && doc.quality_score >= 30)
+                    );
             }
 
             console.log(`   Database candidates: ${pairs.length}`);
@@ -4117,7 +4151,18 @@ Your personality:
                 // Star rating multiplier - quality weighting!
                 let ratingMultiplier = 1.0;
                 let ratingBoost = false;
-                if (pair.rating === 'star3') {
+                if (pair.type === 'qa_pair') {
+                    // Knowledge Atom format uses quality_score (0-100)
+                    if (pair.quality_score >= 70) {
+                        ratingMultiplier = 1.2;
+                        ratingBoost = true;
+                    } else if (pair.quality_score >= 50) {
+                        ratingMultiplier = 1.0;
+                    } else {
+                        ratingMultiplier = 0.8;
+                        ratingBoost = true;
+                    }
+                } else if (pair.rating === 'star3') {
                     ratingMultiplier = 1.2; // Excellent answers get boosted
                     ratingBoost = true;
                 } else if (pair.rating === 'star2' || pair.rating === 'up') {
