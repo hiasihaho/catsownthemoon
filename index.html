@@ -4639,7 +4639,7 @@ Your personality:
                 const originalSimilarity = similarity;
 
                 // Category boost - ultra-clever!
-                const pairCategory = pair.category || detectCategory(pair.question);
+                const pairCategory = item.category || detectCategory(item.question);
                 let categoryBoost = false;
                 if (pairCategory === questionCategory) {
                     similarity *= 1.3; // Boost same-category matches
@@ -4649,7 +4649,7 @@ Your personality:
                 // Quality multiplier - unified base_quality scoring (0-100)
                 let qualityMultiplier = 1.0;
                 let qualityBoost = false;
-                const quality = pair.base_quality || 70;
+                const quality = item.base_quality || 70;
 
                 if (quality >= 85) {
                     qualityMultiplier = 1.2;  // Excellent
@@ -4668,12 +4668,12 @@ Your personality:
                 // 🎯 PHASE 2: Context-aware boost - DOM state matching!
                 let contextBoost = false;
                 let contextMatch = 0;
-                if (pair.contextRules) {
+                if (item.contextRules) {
                     const currentDOM = getCurrentDOMState();
 
                     // Check if this answer prefers current DOM state
-                    if (pair.contextRules.preferredTheme) {
-                        if (pair.contextRules.preferredTheme === currentDOM.theme) {
+                    if (item.contextRules.preferredTheme) {
+                        if (item.contextRules.preferredTheme === currentDOM.theme) {
                             similarity *= 1.15; // Boost answers designed for current theme
                             contextBoost = true;
                             contextMatch++;
