@@ -4548,23 +4548,27 @@ Your personality:
                 if (p.contextBoost) boostLabels.push(`+15% 🎯 context`);
                 const boostLabel = boostLabels.length > 0 ? ` [${boostLabels.join(', ')}]` : '';
                 const methodLabel = p.method === 'semantic' ? '🧠' : '🔤';
-                const ratingLabel = p.rating === 'star3' ? '⭐⭐⭐' : p.rating === 'star2' ? '⭐⭐' : p.rating === 'star1' ? '⭐' : p.rating === 'down' ? '👎' : p.rating === 'up' ? '👍' : '⚪';
-                console.log(`   ${i+1}. ${methodLabel} Score: ${p.similarity.toFixed(3)}${boostLabel} | ${ratingLabel}`);
+                // Show quality score for unified schema
+                const qualityLabel = p.base_quality ? `Q:${p.base_quality}` : (p.user_rating || '⚪');
+                console.log(`   ${i+1}. ${methodLabel} Score: ${p.similarity.toFixed(3)}${boostLabel} | ${qualityLabel}`);
                 console.log(`      Q: "${p.question}"`);
                 console.log(`      A: "${answerPreview}"`);
             });
 
             const filtered = scored
                 .filter(p => {
-                    // Exclude thumbs-down and unrated entries
-                    if (p.rating === 'down' || !p.rating) return false;
-                    // Accept any star rating (star1, star2, star3) or legacy 'up'
+                    // Unified schema: filter by base_quality and user_rating
+                    // Exclude if explicitly marked bad
+                    if (p.user_rating === 'down') return false;
+                    // Exclude very low quality (< 30)
+                    if (p.base_quality && p.base_quality < 30) return false;
+                    // Must exceed similarity threshold
                     return p.similarity > 0.25;
                 })
                 .sort((a, b) => b.similarity - a.similarity)
                 .slice(0, limit);
 
-            console.log(`\n   ✅ Final matches (threshold: >0.25, stars only, limit: ${limit}):`);
+            console.log(`\n   ✅ Final matches (threshold: >0.25, quality>=30, limit: ${limit}):`);
             if (filtered.length > 0) {
                 filtered.forEach((p, i) => {
                     const answerPreview = p.answer.substring(0, 80) + (p.answer.length > 80 ? '...' : '');
@@ -4577,7 +4581,7 @@ Your personality:
                     console.log(`      A: "${answerPreview}"`);
                 });
             } else {
-                console.log('   ⚠️ No matches found (all below threshold or no thumbs-up ratings)');
+                console.log('   ⚠️ No matches found (all below similarity threshold 0.25)');
             }
 
             // Store RAG results for RLHF tracking
