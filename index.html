@@ -2128,6 +2128,35 @@ For narratives, just paste the text directly."></textarea>
         let expSeed = null;          // Random seed for reproducibility
         let autoAdjustParams = true; // Auto-adjust top_p and rep_penalty based on temperature
 
+        // ═══════════════════════════════════════════════════════════════
+        // TAG TAXONOMY - Structured categorization for #tag RAG filtering
+        // ═══════════════════════════════════════════════════════════════
+        const TAG_TAXONOMY = {
+            // Content domains - what the knowledge is about
+            domain: ['cats', 'moon', 'space', 'history', 'lore', 'general'],
+
+            // UI/UX - knowledge about interface elements
+            ui: ['ui-theme', 'ui-control', 'ui-panel', 'settings', 'display'],
+
+            // Technical - how things work
+            technical: ['rag', 'ai', 'llm-parameters', 'code', 'api', 'embedding', 'webgpu'],
+
+            // LLM-DOM interaction - knowledge for LLM to interact with UI
+            interaction: [
+                'dom-read',      // Read DOM state
+                'dom-write',     // Modify DOM elements
+                'dom-query',     // Query specific elements
+                'dom-action',    // Execute UI actions
+                'input-handler'  // Handle special input syntax
+            ],
+
+            // User intent - why user is asking
+            intent: ['help', 'greeting', 'gratitude', 'identity', 'learning', 'training', 'creative']
+        };
+
+        // Get all valid tags as flat array (for validation)
+        const ALL_VALID_TAGS = Object.values(TAG_TAXONOMY).flat();
+
         // Starter knowledge - pre-seeded Q&A pairs for better initial experience
         const STARTER_KNOWLEDGE = [
             { q: "what are cats", a: "Cats are magnificent, independent creatures who rule the moon and occasionally tolerate humans! 🐱" },
@@ -2198,21 +2227,49 @@ For narratives, just paste the text directly."></textarea>
                 learningDB = new PouchDB(DB_NAME);
                 console.log('📚 PouchDB Learning database initialized!');
 
-                // Create indexes for Mango queries (optimized for fast filtering)
+                // Create indexes for Mango queries (optimized for unified knowledge schema)
+
+                // Main query index - type + quality + timestamp
                 await learningDB.createIndex({
                     index: {
-                        fields: ['type', 'rating', 'category', 'timestamp'],
+                        fields: ['type', 'base_quality', 'timestamp'],
                         name: 'main-query-index'
                     }
                 });
 
+                // Primary tag index - for #tag filtering
                 await learningDB.createIndex({
                     index: {
-                        fields: ['tags'],
-                        name: 'tags-index'
+                        fields: ['type', 'primary_tag', 'base_quality'],
+                        name: 'primary-tag-index'
                     }
                 });
 
+                // Source type index - chat vs upload vs seed
+                await learningDB.createIndex({
+                    index: {
+                        fields: ['type', 'source_type', 'base_quality'],
+                        name: 'source-type-index'
+                    }
+                });
+
+                // Training export index
+                await learningDB.createIndex({
+                    index: {
+                        fields: ['type', 'training_ready', 'base_quality'],
+                        name: 'training-export-index'
+                    }
+                });
+
+                // Source document linking
+                await learningDB.createIndex({
+                    index: {
+                        fields: ['type', 'source_doc_id'],
+                        name: 'source-doc-index'
+                    }
+                });
+
+                // Time-based queries
                 await learningDB.createIndex({
                     index: {
                         fields: ['type', 'timestamp'],
@@ -2220,29 +2277,18 @@ For narratives, just paste the text directly."></textarea>
                     }
                 });
 
-                // Knowledge Atom indexes
+                // Legacy support - for migration period
                 await learningDB.createIndex({
                     index: {
-                        fields: ['type', 'source_doc_id'],
-                        name: 'chunk-source-index'
-                    }
-                });
-
-                await learningDB.createIndex({
-                    index: {
-                        fields: ['type', 'quality_score'],
-                        name: 'quality-index'
-                    }
-                });
-
-                await learningDB.createIndex({
-                    index: {
-                        fields: ['type', 'training_ready', 'quality_score'],
-                        name: 'training-export-index'
+                        fields: ['type', 'rating', 'category'],
+                        name: 'legacy-rating-index'
                     }
                 });
 
                 console.log('📊 Indexes created for fast Mango queries!');
+
+                // Migrate old documents if needed
+                await migrateOldDocuments();
 
                 // Seed with starter knowledge if database is empty
                 await seedStarterKnowledge();
@@ -2254,50 +2300,272 @@ For narratives, just paste the text directly."></textarea>
             }
         }
 
-        // Auto-generate tags from question and answer
-        function autoGenerateTags(question, answer, category) {
-            const tags = new Set();
+        // ═══════════════════════════════════════════════════════════════
+        // MIGRATION: Convert old documents to unified knowledge schema
+        // ═══════════════════════════════════════════════════════════════
+        async function migrateOldDocuments() {
+            try {
+                const result = await learningDB.allDocs({ include_docs: true });
+                const oldDocs = result.rows
+                    .map(r => r.doc)
+                    .filter(doc => doc.type === 'question-answer' || doc.type === 'qa_pair');
 
-            // Always add type tag
-            tags.add('question-answer');
+                if (oldDocs.length === 0) {
+                    console.log('📦 No old documents to migrate');
+                    return;
+                }
 
-            // Add category as tag
-            if (category) {
-                tags.add(category);
+                console.log(`🔄 Migrating ${oldDocs.length} old documents to unified schema...`);
+
+                for (const doc of oldDocs) {
+                    // Generate structured tags
+                    const { tags: structuredTags, primaryTag } = autoGenerateStructuredTags(
+                        doc.question || '',
+                        doc.answer || '',
+                        doc.category || 'general'
+                    );
+
+                    // Convert to base_quality
+                    let baseQuality = 70;
+                    if (doc.type === 'question-answer') {
+                        if (doc.rating === 'star3') baseQuality = 90;
+                        else if (doc.rating === 'star2' || doc.rating === 'up') baseQuality = 75;
+                        else if (doc.rating === 'star1') baseQuality = 55;
+                        else if (doc.rating === 'down') baseQuality = 20;
+                    } else if (doc.type === 'qa_pair') {
+                        // qa_pair quality_score is 0-1, convert to 0-100
+                        baseQuality = Math.round((doc.quality_score || 0.7) * 100);
+                    }
+
+                    // Create migrated document
+                    const migratedDoc = {
+                        ...doc,
+                        type: 'knowledge',
+                        base_quality: baseQuality,
+                        user_rating: doc.rating || null,
+                        tags: structuredTags,
+                        primary_tag: primaryTag,
+                        source_type: doc.source_type || (doc.source === 'text_upload' ? 'upload' : 'chat'),
+                        source_title: doc.source_title || null,
+                        training_ready: baseQuality >= 70,
+                        training_format: doc.training_format || {
+                            instruction: doc.system_prompt || '',
+                            input: doc.question || '',
+                            output: doc.answer || ''
+                        },
+                        dom_actions: doc.domActions || doc.dom_actions || [],
+                        _migrated_from: doc.type,
+                        _migrated_at: Date.now()
+                    };
+
+                    // Update in place
+                    await learningDB.put(migratedDoc);
+                }
+
+                console.log(`✅ Migrated ${oldDocs.length} documents to unified knowledge schema`);
+            } catch (error) {
+                console.error('⚠️ Migration error (non-fatal):', error);
+            }
+        }
+
+        // ═══════════════════════════════════════════════════════════════
+        // TAG QUERY PARSING - Parse #tag syntax from user input
+        // ═══════════════════════════════════════════════════════════════
+        function parseQueryWithTags(input) {
+            const tagFilters = [];
+
+            // Extract #tags from input
+            const cleanInput = input.replace(/#(\w+)/g, (match, tag) => {
+                const lowTag = tag.toLowerCase();
+                tagFilters.push(lowTag);
+                return '';
+            }).trim();
+
+            // Determine query mode
+            let mode = 'knowledge';  // default
+            if (tagFilters.includes('dom') || tagFilters.includes('dom-read') || tagFilters.includes('dom-write')) {
+                mode = 'dom-interaction';
             }
 
-            // Extract tags from question
+            // Find which taxonomy category each tag belongs to
+            const categorizedTags = {};
+            tagFilters.forEach(tag => {
+                for (const [category, tagList] of Object.entries(TAG_TAXONOMY)) {
+                    if (tagList.includes(tag)) {
+                        if (!categorizedTags[category]) categorizedTags[category] = [];
+                        categorizedTags[category].push(tag);
+                        return;
+                    }
+                }
+                // Tag might be a category name itself
+                if (TAG_TAXONOMY[tag]) {
+                    categorizedTags[tag] = TAG_TAXONOMY[tag];
+                }
+            });
+
+            return {
+                query: cleanInput,
+                tagFilters,
+                categorizedTags,
+                mode
+            };
+        }
+
+        // ═══════════════════════════════════════════════════════════════
+        // TAG-FILTERED RAG - Query with #tag filtering
+        // ═══════════════════════════════════════════════════════════════
+        async function tagFilteredRAG(query, tagFilters = [], options = {}) {
+            if (!learningDB) await initLearningDB();
+
+            const { limit = 50, minQuality = 30 } = options;
+
+            // Build Mango selector
+            const selector = {
+                type: 'knowledge',
+                base_quality: { $gte: minQuality }
+            };
+
+            // Add tag filters
+            if (tagFilters.length > 0) {
+                // Check if filtering by primary_tag
+                const primaryTagFilter = tagFilters.find(tag =>
+                    Object.values(TAG_TAXONOMY).flat().includes(tag)
+                );
+
+                if (primaryTagFilter) {
+                    selector.primary_tag = { $in: tagFilters };
+                }
+            }
+
+            try {
+                const result = await learningDB.find({
+                    selector,
+                    limit
+                });
+
+                console.log(`🏷️ Tag-filtered RAG: ${result.docs.length} results for tags [${tagFilters.join(', ')}]`);
+                return result.docs;
+            } catch (error) {
+                console.error('Tag-filtered RAG error:', error);
+                // Fallback to allDocs
+                const allResult = await learningDB.allDocs({ include_docs: true });
+                return allResult.rows
+                    .map(r => r.doc)
+                    .filter(doc =>
+                        doc.type === 'knowledge' &&
+                        doc.base_quality >= minQuality &&
+                        (tagFilters.length === 0 || tagFilters.includes(doc.primary_tag))
+                    )
+                    .slice(0, limit);
+            }
+        }
+
+        // ═══════════════════════════════════════════════════════════════
+        // COMPREHENSIVE DOM SNAPSHOT - For LLM-DOM interaction
+        // ═══════════════════════════════════════════════════════════════
+        function getComprehensiveDOMSnapshot() {
+            return {
+                // Theme state
+                theme: document.body.dataset.theme || 'default',
+                background: getComputedStyle(document.body).background,
+
+                // Panel visibility
+                panels: {
+                    training: document.getElementById('trainingPanel')?.style.display !== 'none',
+                    database: document.getElementById('databaseModal')?.style.display !== 'none',
+                    ragInspector: document.getElementById('ragInspector')?.style.display !== 'none',
+                    consoleViewer: document.getElementById('consoleViewer')?.style.display !== 'none'
+                },
+
+                // Control values
+                controls: {
+                    creativity: creativityLevel,
+                    model: document.getElementById('modelSelect')?.value || 'default',
+                    ragEnabled: ragEnabled,
+                    showThinking: document.getElementById('showThinkingToggle')?.checked || false
+                },
+
+                // Visual elements
+                visual: {
+                    moon_visible: !!document.querySelector('.moon'),
+                    stars_count: document.querySelectorAll('.star').length,
+                    messages_count: document.querySelectorAll('.message').length
+                },
+
+                // Knowledge stats
+                knowledge: {
+                    docs: document.getElementById('kbDocsCount')?.textContent || '0',
+                    chunks: document.getElementById('kbChunksCount')?.textContent || '0',
+                    pairs: document.getElementById('kbPairsCount')?.textContent || '0'
+                }
+            };
+        }
+
+        // Auto-generate tags from question and answer
+        // Generate structured tags based on content analysis
+        function autoGenerateStructuredTags(question, answer, category) {
+            const tags = {
+                domain: [],
+                ui: [],
+                technical: [],
+                interaction: [],
+                intent: []
+            };
+
             const q = question.toLowerCase();
             const a = answer.toLowerCase();
+            const combined = q + ' ' + a;
 
-            // UI-related tags
-            if (q.match(/dark|light|theme|color|background/)) tags.add('ui-theme');
-            if (q.match(/panel|show|hide|display/)) tags.add('ui-control');
-            if (q.match(/setting|config|preference/)) tags.add('settings');
+            // DOMAIN tags - what the content is about
+            if (combined.match(/cat|kitten|feline|meow|purr/)) tags.domain.push('cats');
+            if (combined.match(/moon|lunar/)) tags.domain.push('moon');
+            if (combined.match(/space|star|rocket|astronaut/)) tags.domain.push('space');
+            if (combined.match(/history|timeline|date|year|century|\d{4}/)) tags.domain.push('history');
+            if (combined.match(/lore|story|legend|tale|myth/)) tags.domain.push('lore');
+            if (tags.domain.length === 0) tags.domain.push('general');
 
-            // Technical tags
-            if (q.match(/how.*work|explain|technical|api|code/)) tags.add('technical');
-            if (q.match(/rag|retrieval|search|semantic/)) tags.add('rag');
-            if (q.match(/llm|model|ai|parameter/)) tags.add('ai');
-            if (q.match(/temperature|creativity|top.?p|sampling/)) tags.add('llm-parameters');
+            // UI tags - interface related
+            if (q.match(/dark|light|theme|color|background/)) tags.ui.push('ui-theme');
+            if (q.match(/panel|show|hide|display|toggle/)) tags.ui.push('ui-control');
+            if (q.match(/button|click|press/)) tags.ui.push('ui-panel');
+            if (q.match(/setting|config|preference|option/)) tags.ui.push('settings');
 
-            // Cat/Moon theme tags
-            if (q.match(/cat|kitten|feline|meow|purr/) || a.match(/cat|kitten|meow/)) tags.add('cats');
-            if (q.match(/moon|lunar|space|star/) || a.match(/moon|lunar|space/)) tags.add('moon');
+            // TECHNICAL tags - how things work
+            if (q.match(/rag|retrieval|search|semantic|embed/)) tags.technical.push('rag');
+            if (q.match(/llm|model|ai|neural|inference/)) tags.technical.push('ai');
+            if (q.match(/temperature|creativity|top.?p|sampling|token/)) tags.technical.push('llm-parameters');
+            if (q.match(/code|program|function|api|javascript/)) tags.technical.push('code');
+            if (q.match(/webgpu|gpu|shader|wasm/)) tags.technical.push('webgpu');
+            if (q.match(/embed|vector|384|cosine/)) tags.technical.push('embedding');
 
-            // Support/Help tags
-            if (q.match(/help|assist|support|how to/)) tags.add('help');
-            if (q.match(/thank|appreciate/) || a.match(/welcome|pleasure/)) tags.add('gratitude');
-            if (q.match(/hello|hi|hey|greet/)) tags.add('greeting');
+            // INTERACTION tags - LLM-DOM actions
+            if (a.match(/opening|showing|displaying/) && a.match(/panel|modal|dialog/)) tags.interaction.push('dom-action');
+            if (q.match(/read.*dom|get.*state|current.*ui/)) tags.interaction.push('dom-read');
+            if (q.match(/set|change|modify|update/) && q.match(/ui|panel|theme/)) tags.interaction.push('dom-write');
 
-            // Identity tags
-            if (q.match(/who.*you|what.*you|your name/)) tags.add('identity');
+            // INTENT tags - why user is asking
+            if (q.match(/help|assist|support|how to|how do/)) tags.intent.push('help');
+            if (q.match(/hello|hi|hey|greet/)) tags.intent.push('greeting');
+            if (q.match(/thank|appreciate/) || a.match(/welcome|pleasure/)) tags.intent.push('gratitude');
+            if (q.match(/who.*you|what.*you|your name|introduce/)) tags.intent.push('identity');
+            if (q.match(/learn|train|feedback|improve/)) tags.intent.push('learning');
+            if (q.match(/rlhf|dpo|fine.?tun|export/)) tags.intent.push('training');
+            if (q.match(/creative|imaginat|story|write/)) tags.intent.push('creative');
 
-            // Learning/Training tags
-            if (q.match(/learn|train|feedback|improve/)) tags.add('learning');
-            if (q.match(/rlhf|dpo|fine.?tun/)) tags.add('training');
+            // Determine primary tag (most specific non-general domain tag, or first intent)
+            const primaryTag = tags.domain.find(t => t !== 'general')
+                || tags.intent[0]
+                || tags.domain[0]
+                || 'general';
 
-            return Array.from(tags);
+            return { tags, primaryTag };
+        }
+
+        // Legacy wrapper for backward compatibility
+        function autoGenerateTags(question, answer, category) {
+            const { tags } = autoGenerateStructuredTags(question, answer, category);
+            // Flatten for legacy code
+            return Object.values(tags).flat().filter(t => t);
         }
 
         // Get current DOM state
@@ -2330,7 +2598,7 @@ For narratives, just paste the text directly."></textarea>
             }
         }
 
-        // Save Q&A pair to learning database with RLHF/DPO data
+        // Save Q&A pair to learning database with unified 'knowledge' schema
         async function saveQAPair(question, answer, rating = null, metadata = {}) {
             if (!learningDB) await initLearningDB();
 
@@ -2340,28 +2608,46 @@ For narratives, just paste the text directly."></textarea>
             // Capture DOM state
             const domState = getCurrentDOMState();
 
-            // Detect category
+            // Detect category (legacy)
             const category = detectCategory(question);
 
-            // Auto-generate tags
-            const tags = metadata.tags || autoGenerateTags(question, answer, category);
+            // Generate structured tags
+            const { tags: structuredTags, primaryTag } = autoGenerateStructuredTags(question, answer, category);
+
+            // Convert rating to base_quality score (0-100)
+            let baseQuality = 70; // Default for unrated
+            if (rating === 'star3') baseQuality = 90;
+            else if (rating === 'star2' || rating === 'up') baseQuality = 75;
+            else if (rating === 'star1') baseQuality = 55;
+            else if (rating === 'down') baseQuality = 20;
+            else if (metadata.quality_score) baseQuality = metadata.quality_score;
 
             const timestamp = Date.now();
             const doc = {
-                _id: `qa_${timestamp}_${Math.random().toString(36).substr(2, 9)}`,
-                type: 'question-answer',
+                _id: `knowledge_${timestamp}_${Math.random().toString(36).substr(2, 9)}`,
+                type: 'knowledge',
 
                 // Core Q&A
                 question: question.toLowerCase(),
                 answer: answer,
-                rating: rating,
                 timestamp: timestamp,
 
-                // NEW: Tags for multi-dimensional categorization
-                tags: tags,
-                category: category,
+                // UNIFIED QUALITY SYSTEM
+                base_quality: baseQuality,
+                user_rating: rating,  // Original rating for reference
 
-                // RLHF/DPO fields
+                // STRUCTURED TAGS for #tag filtering
+                tags: structuredTags,
+                primary_tag: primaryTag,
+                category: category,  // Legacy field
+
+                // SOURCE TRACKING
+                source_type: metadata.source_type || 'chat',
+                source_title: metadata.source_title || null,
+                source_doc_id: metadata.source_doc_id || null,
+                source_chunk_id: metadata.source_chunk_id || null,
+
+                // RLHF/DPO fields (for chat-sourced knowledge)
                 conversation_context: metadata.conversation_context || [...conversationHistory],
                 system_prompt: metadata.system_prompt || currentSystemPrompt,
                 rag_context: metadata.rag_context || [...lastRAGResults],
@@ -2382,16 +2668,25 @@ For narratives, just paste the text directly."></textarea>
                 // Semantic embedding (384-dim vector as array for PouchDB)
                 embedding: embedding ? Array.from(embedding) : null,
 
-                // NEW: Placeholder for future DOM actions
-                domActions: metadata.domActions || []
+                // DOM interaction actions
+                dom_actions: metadata.domActions || [],
+
+                // Training metadata
+                training_ready: baseQuality >= 70,
+                training_format: {
+                    instruction: currentSystemPrompt,
+                    input: question,
+                    output: answer
+                }
             };
 
             try {
                 const result = await learningDB.put(doc);
-                console.log(`✅ Saved Q&A with tags: ${tags.join(', ')}`);
+                const flatTags = Object.values(structuredTags).flat().filter(t => t);
+                console.log(`✅ Saved knowledge [${primaryTag}] quality:${baseQuality} tags: ${flatTags.join(', ')}`);
                 return result.id;
             } catch (error) {
-                console.error('❌ Failed to save Q&A:', error);
+                console.error('❌ Failed to save knowledge:', error);
                 throw error;
             }
         }
@@ -2440,29 +2735,38 @@ For narratives, just paste the text directly."></textarea>
                 const result = await learningDB.allDocs({ include_docs: true });
                 const pairs = result.rows
                     .map(row => row.doc)
-                    .filter(doc => doc.type === 'question-answer');
+                    .filter(doc => doc.type === 'knowledge');
 
                 const stats = {
                     total: pairs.length,
-                    star1: pairs.filter(p => p.rating === 'star1').length,
-                    star2: pairs.filter(p => p.rating === 'star2').length,
-                    star3: pairs.filter(p => p.rating === 'star3').length,
-                    liked: pairs.filter(p => p.rating === 'up' || p.rating === 'star1' || p.rating === 'star2' || p.rating === 'star3').length,
-                    disliked: pairs.filter(p => p.rating === 'down').length,
-                    // Legacy 'up' support
-                    legacyUp: pairs.filter(p => p.rating === 'up').length
+                    // Quality-based counts
+                    excellent: pairs.filter(p => p.base_quality >= 85).length,
+                    good: pairs.filter(p => p.base_quality >= 70 && p.base_quality < 85).length,
+                    okay: pairs.filter(p => p.base_quality >= 50 && p.base_quality < 70).length,
+                    low: pairs.filter(p => p.base_quality < 50).length,
+                    // Source-based counts
+                    fromChat: pairs.filter(p => p.source_type === 'chat').length,
+                    fromUpload: pairs.filter(p => p.source_type === 'upload').length,
+                    // Training ready
+                    trainingReady: pairs.filter(p => p.training_ready).length,
+                    // Legacy compatibility
+                    liked: pairs.filter(p => p.base_quality >= 50).length,
+                    disliked: pairs.filter(p => p.base_quality < 50).length
                 };
                 return stats;
             } catch (error) {
                 console.error('❌ Failed to get learning stats:', error);
                 return {
                     total: 0,
-                    star1: 0,
-                    star2: 0,
-                    star3: 0,
+                    excellent: 0,
+                    good: 0,
+                    okay: 0,
+                    low: 0,
+                    fromChat: 0,
+                    fromUpload: 0,
+                    trainingReady: 0,
                     liked: 0,
-                    disliked: 0,
-                    legacyUp: 0
+                    disliked: 0
                 };
             }
         }
@@ -2797,29 +3101,62 @@ For narratives, just paste the text directly."></textarea>
                 await learningDB.put(chunkDoc);
                 sourceDoc.chunk_ids.push(chunkId);
 
-                // Store each Q:A pair
+                // Store each Q:A pair using unified knowledge schema
                 for (const qa of qaPairs) {
                     const qEmbedding = await generateEmbedding(qa.question);
 
-                    const qaPairDoc = {
-                        _id: `qa_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-                        type: 'qa_pair',
-                        question: qa.question,
+                    // Generate structured tags
+                    const { tags: structuredTags, primaryTag } = autoGenerateStructuredTags(
+                        qa.question,
+                        qa.answer,
+                        detectCategory(qa.question)
+                    );
+
+                    // Convert quality_score from 0-1 to 0-100
+                    const baseQuality = Math.round((qa.quality_score || 0.7) * 100);
+
+                    const knowledgeDoc = {
+                        _id: `knowledge_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+                        type: 'knowledge',
+                        question: qa.question.toLowerCase(),
                         answer: qa.answer,
-                        source: 'generated',
-                        source_chunk_id: chunkId,
+                        timestamp: Date.now(),
+
+                        // Quality
+                        base_quality: baseQuality,
+                        user_rating: null,
+
+                        // Tags
+                        tags: structuredTags,
+                        primary_tag: primaryTag,
+                        category: detectCategory(qa.question),
+
+                        // Source tracking
+                        source_type: 'upload',
+                        source_title: title,
                         source_doc_id: docId,
-                        q_embedding: qEmbedding ? Array.from(qEmbedding) : null,
-                        quality_score: qa.quality_score,
-                        training_ready: qa.quality_score >= 0.7,
+                        source_chunk_id: chunkId,
+
+                        // Embedding
+                        embedding: qEmbedding ? Array.from(qEmbedding) : null,
+
+                        // Training
+                        training_ready: baseQuality >= 70,
                         training_format: {
                             instruction: systemPrompt || 'You are a helpful cat AI assistant who lives on the moon.',
                             input: qa.question,
                             output: qa.answer
-                        }
+                        },
+
+                        // Minimal RLHF fields (not from chat)
+                        conversation_context: [],
+                        system_prompt: systemPrompt || currentSystemPrompt,
+                        rag_context: [],
+                        dom_state: {},
+                        dom_actions: []
                     };
 
-                    await learningDB.put(qaPairDoc);
+                    await learningDB.put(knowledgeDoc);
                     totalQAPairs++;
                 }
 
@@ -3017,12 +3354,14 @@ For narratives, just paste the text directly."></textarea>
                 const result = await learningDB.allDocs({ include_docs: true });
                 const docs = result.rows.map(r => r.doc);
 
+                const knowledge = docs.filter(d => d.type === 'knowledge');
+
                 return {
                     source_documents: docs.filter(d => d.type === 'source_document').length,
                     knowledge_chunks: docs.filter(d => d.type === 'knowledge_chunk').length,
-                    qa_pairs: docs.filter(d => d.type === 'qa_pair').length,
-                    legacy_qa: docs.filter(d => d.type === 'question-answer').length,
-                    training_ready: docs.filter(d => d.type === 'qa_pair' && d.training_ready).length
+                    qa_pairs: knowledge.length,
+                    legacy_qa: 0,  // No more legacy after migration
+                    training_ready: knowledge.filter(d => d.training_ready).length
                 };
             } catch (error) {
                 console.error('Error getting knowledge stats:', error);
@@ -4063,41 +4402,41 @@ Your personality:
             return 'general';
         }
 
-        // Enhanced similarity with SEMANTIC VECTOR SEARCH + category weighting + MANGO QUERIES
-        async function findSimilarQuestionsEnhanced(question, limit = 3) {
-            console.log('🔍 RAG SEARCH START (PouchDB + Mango)');
-            console.log(`   Query: "${question}"`);
+        // Enhanced similarity with SEMANTIC VECTOR SEARCH + category weighting + MANGO QUERIES + TAG FILTERING
+        async function findSimilarQuestionsEnhanced(question, limit = 3, options = {}) {
+            // Parse #tags from question
+            const { query: cleanQuestion, tagFilters, mode } = parseQueryWithTags(question);
+            const displayQuestion = cleanQuestion || question;
+
+            console.log('🔍 RAG SEARCH START (Unified Knowledge Schema)');
+            console.log(`   Query: "${displayQuestion}"`);
+            if (tagFilters.length > 0) {
+                console.log(`   🏷️ Tag filters: [${tagFilters.join(', ')}]`);
+            }
 
             if (!learningDB) await initLearningDB();
 
-            const questionCategory = detectCategory(question);
+            const questionCategory = detectCategory(displayQuestion);
             console.log(`   Category: ${questionCategory}`);
 
-            // 🚀 MANGO QUERY: Pre-filter at database level (MASSIVE performance boost!)
-            const candidateLimit = 100; // Only fetch top 100 candidates instead of ALL
+            // 🚀 MANGO QUERY: Pre-filter at database level
+            const candidateLimit = 100;
             let pairs = [];
 
             try {
-                // Search both old Q&A pairs and new Knowledge Atom qa_pairs
+                // Build selector for unified knowledge schema
+                const selector = {
+                    type: 'knowledge',
+                    base_quality: { $gte: 30 }  // Minimum quality threshold
+                };
+
+                // Add tag filter if specified
+                if (tagFilters.length > 0) {
+                    selector.primary_tag = { $in: tagFilters };
+                }
+
                 const result = await learningDB.find({
-                    selector: {
-                        $or: [
-                            // Old format: question-answer with ratings
-                            {
-                                type: 'question-answer',
-                                rating: { $in: ['star3', 'star2', 'star1', 'up'] },
-                                $or: [
-                                    { category: questionCategory },
-                                    { category: 'general' }
-                                ]
-                            },
-                            // New format: Knowledge Atom qa_pairs with quality_score
-                            {
-                                type: 'qa_pair',
-                                quality_score: { $gte: 30 } // Minimum quality threshold
-                            }
-                        ]
-                    },
+                    selector,
                     limit: candidateLimit
                 });
                 pairs = result.docs;
@@ -4109,8 +4448,9 @@ Your personality:
                 pairs = allResult.rows
                     .map(row => row.doc)
                     .filter(doc =>
-                        (doc.type === 'question-answer' && doc.rating && doc.rating !== 'down') ||
-                        (doc.type === 'qa_pair' && doc.quality_score >= 30)
+                        doc.type === 'knowledge' &&
+                        doc.base_quality >= 30 &&
+                        (tagFilters.length === 0 || tagFilters.includes(doc.primary_tag))
                     );
             }
 
@@ -4148,31 +4488,24 @@ Your personality:
                     categoryBoost = true;
                 }
 
-                // Star rating multiplier - quality weighting!
-                let ratingMultiplier = 1.0;
-                let ratingBoost = false;
-                if (pair.type === 'qa_pair') {
-                    // Knowledge Atom format uses quality_score (0-100)
-                    if (pair.quality_score >= 70) {
-                        ratingMultiplier = 1.2;
-                        ratingBoost = true;
-                    } else if (pair.quality_score >= 50) {
-                        ratingMultiplier = 1.0;
-                    } else {
-                        ratingMultiplier = 0.8;
-                        ratingBoost = true;
-                    }
-                } else if (pair.rating === 'star3') {
-                    ratingMultiplier = 1.2; // Excellent answers get boosted
-                    ratingBoost = true;
-                } else if (pair.rating === 'star2' || pair.rating === 'up') {
-                    ratingMultiplier = 1.0; // Good answers (normal weight) - 'up' for backward compatibility
-                } else if (pair.rating === 'star1') {
-                    ratingMultiplier = 0.8; // Okay answers get de-prioritized
-                    ratingBoost = true;
+                // Quality multiplier - unified base_quality scoring (0-100)
+                let qualityMultiplier = 1.0;
+                let qualityBoost = false;
+                const quality = pair.base_quality || 70;
+
+                if (quality >= 85) {
+                    qualityMultiplier = 1.2;  // Excellent
+                    qualityBoost = true;
+                } else if (quality >= 70) {
+                    qualityMultiplier = 1.1;  // Good
+                } else if (quality >= 50) {
+                    qualityMultiplier = 1.0;  // Okay
+                } else {
+                    qualityMultiplier = 0.8;  // Low quality
+                    qualityBoost = true;
                 }
 
-                similarity *= ratingMultiplier;
+                similarity *= qualityMultiplier;
 
                 // 🎯 PHASE 2: Context-aware boost - DOM state matching!
                 let contextBoost = false;
@@ -4195,7 +4528,7 @@ Your personality:
                 // Clip to max 1.0 (cosine similarity cannot exceed 1.0)
                 similarity = Math.min(similarity, 1.0);
 
-                return { ...pair, similarity, category: pairCategory, originalSimilarity, categoryBoost, method, ratingMultiplier, ratingBoost, contextBoost, contextMatch };
+                return { ...pair, similarity, category: pairCategory, originalSimilarity, categoryBoost, method, qualityMultiplier, qualityBoost, contextBoost, contextMatch };
             }));
 
             // Log top candidates before filtering
@@ -4208,9 +4541,9 @@ Your personality:
                 const answerPreview = p.answer.substring(0, 60) + (p.answer.length > 60 ? '...' : '');
                 const boostLabels = [];
                 if (p.categoryBoost) boostLabels.push(`+30% ${p.category}`);
-                if (p.ratingBoost) {
-                    if (p.ratingMultiplier > 1.0) boostLabels.push(`+20% ⭐⭐⭐`);
-                    else if (p.ratingMultiplier < 1.0) boostLabels.push(`-20% ⭐`);
+                if (p.qualityBoost) {
+                    if (p.qualityMultiplier > 1.0) boostLabels.push(`+${Math.round((p.qualityMultiplier-1)*100)}% quality:${p.base_quality}`);
+                    else if (p.qualityMultiplier < 1.0) boostLabels.push(`-${Math.round((1-p.qualityMultiplier)*100)}% quality:${p.base_quality}`);
                 }
                 if (p.contextBoost) boostLabels.push(`+15% 🎯 context`);
                 const boostLabel = boostLabels.length > 0 ? ` [${boostLabels.join(', ')}]` : '';
@@ -4968,8 +5301,17 @@ Made with 🐱 and 🌙
                 // Get the document first
                 const doc = await learningDB.get(id);
 
-                // Update the rating
-                doc.rating = newRating;
+                // Update user_rating and recalculate base_quality
+                doc.user_rating = newRating;
+
+                // Convert rating to base_quality
+                if (newRating === 'star3') doc.base_quality = 90;
+                else if (newRating === 'star2') doc.base_quality = 75;
+                else if (newRating === 'star1') doc.base_quality = 55;
+                else if (newRating === 'down') doc.base_quality = 20;
+
+                // Update training_ready based on new quality
+                doc.training_ready = doc.base_quality >= 70;
 
                 // Save it back
                 await learningDB.put(doc);
@@ -4978,8 +5320,8 @@ Made with 🐱 and 🌙
                 const ratingEmoji = newRating === 'star3' ? '⭐⭐⭐' :
                                    newRating === 'star2' ? '⭐⭐' :
                                    newRating === 'star1' ? '⭐' : '👎';
-                showLearningNotification(`${ratingEmoji} Rating updated!`);
-                console.log(`✅ Updated entry ${id} to rating: ${newRating}`);
+                showLearningNotification(`${ratingEmoji} Quality → ${doc.base_quality}`);
+                console.log(`✅ Updated entry ${id} to quality: ${doc.base_quality}`);
                 return true;
             } catch (error) {
                 console.error('❌ Error updating rating:', error);
@@ -5301,30 +5643,45 @@ Q: `;
         // Function to load and display database (separated for reuse after delete)
         async function loadAndDisplayDatabase() {
             try {
-                // Get all Q&A pairs from PouchDB
+                // Get all knowledge documents from PouchDB
                 const result = await learningDB.allDocs({ include_docs: true });
                 const pairsWithIds = result.rows
                     .map(row => ({ id: row.id, ...row.doc }))
-                    .filter(doc => doc.type === 'question-answer');
+                    .filter(doc => doc.type === 'knowledge');
 
                 const content = document.getElementById('databaseContent');
                 if (pairsWithIds.length === 0) {
-                    content.innerHTML = '<p style="text-align: center; color: #666; padding: 40px;">No Q&A pairs in database yet.</p>';
+                    content.innerHTML = '<p style="text-align: center; color: #666; padding: 40px;">No knowledge in database yet.</p>';
                 } else {
-                    const star3Count = pairsWithIds.filter(p => p.rating === 'star3').length;
-                    const star2Count = pairsWithIds.filter(p => p.rating === 'star2').length;
-                    const star1Count = pairsWithIds.filter(p => p.rating === 'star1').length;
-                    const downCount = pairsWithIds.filter(p => p.rating === 'down').length;
-                    const legacyUp = pairsWithIds.filter(p => p.rating === 'up').length;
+                    // Count by quality
+                    const excellentCount = pairsWithIds.filter(p => p.base_quality >= 85).length;
+                    const goodCount = pairsWithIds.filter(p => p.base_quality >= 70 && p.base_quality < 85).length;
+                    const okayCount = pairsWithIds.filter(p => p.base_quality >= 50 && p.base_quality < 70).length;
+                    const lowCount = pairsWithIds.filter(p => p.base_quality < 50).length;
+
+                    // Count by source
+                    const chatCount = pairsWithIds.filter(p => p.source_type === 'chat').length;
+                    const uploadCount = pairsWithIds.filter(p => p.source_type === 'upload').length;
+                    const seedCount = pairsWithIds.filter(p => p.source_type === 'seed' || !p.source_type).length;
+
+                    // Count by primary tag
+                    const tagCounts = {};
+                    pairsWithIds.forEach(p => {
+                        const tag = p.primary_tag || 'general';
+                        tagCounts[tag] = (tagCounts[tag] || 0) + 1;
+                    });
+                    const topTags = Object.entries(tagCounts)
+                        .sort((a, b) => b[1] - a[1])
+                        .slice(0, 5)
+                        .map(([tag, count]) => `${tag}:${count}`)
+                        .join(' | ');
 
                     let html = `
-                        <div style="margin-bottom: 15px; padding: 10px; background: #f3f4f6; border-radius: 8px;">
-                            <strong>Total Entries:</strong> ${pairsWithIds.length} |
-                            <strong>⭐⭐⭐:</strong> ${star3Count} |
-                            <strong>⭐⭐:</strong> ${star2Count} |
-                            <strong>⭐:</strong> ${star1Count} |
-                            <strong>👎:</strong> ${downCount}
-                            ${legacyUp > 0 ? `| <strong>👍 (old):</strong> ${legacyUp}` : ''}
+                        <div style="margin-bottom: 15px; padding: 10px; background: #f3f4f6; border-radius: 8px; font-size: 12px;">
+                            <strong>Total:</strong> ${pairsWithIds.length} |
+                            <strong>Quality:</strong> 🟢${excellentCount} 🟡${goodCount} 🟠${okayCount} 🔴${lowCount}<br>
+                            <strong>Source:</strong> Chat:${chatCount} | Upload:${uploadCount} | Seed:${seedCount}<br>
+                            <strong>Top Tags:</strong> ${topTags}
                         </div>
                         <div style="display: grid; gap: 10px;" id="databaseEntries">
                     `;
@@ -5333,28 +5690,43 @@ Q: `;
 
                     pairsWithIds.forEach((p, i) => {
                         const date = p.timestamp ? new Date(p.timestamp).toLocaleString() : 'Unknown';
-                        const rating = p.rating === 'star3' ? '⭐⭐⭐' :
-                                      p.rating === 'star2' ? '⭐⭐' :
-                                      p.rating === 'star1' ? '⭐' :
-                                      p.rating === 'down' ? '👎' :
-                                      p.rating === 'up' ? '👍' : '⚪';
-                        const borderColor = p.rating === 'star3' ? '#fbbf24' :
-                                           p.rating === 'star2' || p.rating === 'up' ? '#10b981' :
-                                           p.rating === 'star1' ? '#fb923c' :
-                                           p.rating === 'down' ? '#ef4444' : '#9ca3af';
-                        const category = p.category || detectCategory(p.question);
-                        const source = p.source || 'manual';
+
+                        // Unified format using base_quality
+                        const quality = p.base_quality || 70;
+                        let qualityLabel, borderColor;
+                        if (quality >= 85) {
+                            qualityLabel = `🟢 ${quality}`;
+                            borderColor = '#10b981';
+                        } else if (quality >= 70) {
+                            qualityLabel = `🟡 ${quality}`;
+                            borderColor = '#22c55e';
+                        } else if (quality >= 50) {
+                            qualityLabel = `🟠 ${quality}`;
+                            borderColor = '#fbbf24';
+                        } else {
+                            qualityLabel = `🔴 ${quality}`;
+                            borderColor = '#ef4444';
+                        }
+
+                        const primaryTag = p.primary_tag || 'general';
+                        const sourceType = p.source_type || 'chat';
+                        const sourceLabel = sourceType === 'upload' ? `📄 ${p.source_title || 'Upload'}` :
+                                           sourceType === 'chat' ? '💬 Chat' : '🌱 Seed';
                         const hasEmbedding = p.embedding ? '🧠' : '🔤';
-                        const tags = p.tags || [];
-                        const tagsHTML = tags.length > 0 ?
+
+                        // Get flattened tags for display
+                        const structuredTags = p.tags || {};
+                        const flatTags = Object.values(structuredTags).flat().filter(t => t);
+                        const tagsHTML = flatTags.length > 0 ?
                             `<div style="display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px;">
-                                ${tags.map(tag => `<span style="background: linear-gradient(135deg, #e0e7ff 0%, #ddd6fe 100%); color: #5b21b6; padding: 2px 8px; border-radius: 12px; font-size: 10px; font-weight: 500;">${tag}</span>`).join('')}
+                                ${flatTags.slice(0, 6).map(tag => `<span style="background: linear-gradient(135deg, #e0e7ff 0%, #ddd6fe 100%); color: #5b21b6; padding: 2px 8px; border-radius: 12px; font-size: 10px; font-weight: 500;">${tag}</span>`).join('')}
+                                ${flatTags.length > 6 ? `<span style="color: #666; font-size: 10px;">+${flatTags.length - 6} more</span>` : ''}
                             </div>` : '';
 
                         html += `
                             <div style="border: 1px solid #e5e7eb; border-left: 4px solid ${borderColor}; padding: 12px; border-radius: 8px; background: white;" data-id="${p.id}">
                                 <div style="display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 11px; color: #666;">
-                                    <span>${rating} ${hasEmbedding} <strong style="color: #333;">#${i + 1}</strong> | ${category} | ${source}</span>
+                                    <span>${qualityLabel} ${hasEmbedding} <strong style="color: #333;">#${i + 1}</strong> | #${primaryTag} | ${sourceLabel}</span>
                                     <div style="display: flex; align-items: center; gap: 8px;">
                                         <span>${date}</span>
                                         <button class="delete-entry-btn" data-id="${p.id}" style="background: #fee2e2; color: #991b1b; border: 1px solid #fecaca; border-radius: 4px; padding: 4px 8px; font-size: 11px; cursor: pointer; transition: all 0.2s;" title="Delete this entry">
@@ -5370,10 +5742,10 @@ Q: `;
                                 </div>
                                 ${tagsHTML}
                                 <div style="display: flex; gap: 6px; padding-top: 8px; margin-top: 8px; border-top: 1px solid rgba(0,0,0,0.05); justify-content: flex-end;">
-                                    <button class="rating-change-btn" data-id="${p.id}" data-rating="star1" style="background: ${p.rating === 'star1' ? 'rgba(251, 146, 60, 0.3)' : 'rgba(255, 255, 255, 0.6)'}; border: 1px solid ${p.rating === 'star1' ? '#fb923c' : 'rgba(0,0,0,0.1)'}; border-radius: 4px; padding: 4px 8px; font-size: 14px; cursor: pointer; transition: all 0.2s;" title="Okay (0.8× weight)">⭐</button>
-                                    <button class="rating-change-btn" data-id="${p.id}" data-rating="star2" style="background: ${p.rating === 'star2' || p.rating === 'up' ? 'rgba(16, 185, 129, 0.2)' : 'rgba(255, 255, 255, 0.6)'}; border: 1px solid ${p.rating === 'star2' || p.rating === 'up' ? '#10b981' : 'rgba(0,0,0,0.1)'}; border-radius: 4px; padding: 4px 8px; font-size: 14px; cursor: pointer; transition: all 0.2s;" title="Good (1.0× weight)">⭐⭐</button>
-                                    <button class="rating-change-btn" data-id="${p.id}" data-rating="star3" style="background: ${p.rating === 'star3' ? 'rgba(251, 191, 36, 0.3)' : 'rgba(255, 255, 255, 0.6)'}; border: 1px solid ${p.rating === 'star3' ? '#fbbf24' : 'rgba(0,0,0,0.1)'}; border-radius: 4px; padding: 4px 8px; font-size: 14px; cursor: pointer; transition: all 0.2s;" title="Excellent (1.2× weight)">⭐⭐⭐</button>
-                                    <button class="rating-change-btn" data-id="${p.id}" data-rating="down" style="background: ${p.rating === 'down' ? 'rgba(239, 68, 68, 0.2)' : 'rgba(255, 255, 255, 0.6)'}; border: 1px solid ${p.rating === 'down' ? '#ef4444' : 'rgba(0,0,0,0.1)'}; border-radius: 4px; padding: 4px 8px; font-size: 14px; cursor: pointer; transition: all 0.2s;" title="Bad (excluded)">👎</button>
+                                    <button class="rating-change-btn" data-id="${p.id}" data-rating="star1" style="background: ${p.user_rating === 'star1' ? 'rgba(251, 146, 60, 0.3)' : 'rgba(255, 255, 255, 0.6)'}; border: 1px solid ${p.user_rating === 'star1' ? '#fb923c' : 'rgba(0,0,0,0.1)'}; border-radius: 4px; padding: 4px 8px; font-size: 14px; cursor: pointer; transition: all 0.2s;" title="Okay (quality 55)">⭐</button>
+                                    <button class="rating-change-btn" data-id="${p.id}" data-rating="star2" style="background: ${p.user_rating === 'star2' ? 'rgba(16, 185, 129, 0.2)' : 'rgba(255, 255, 255, 0.6)'}; border: 1px solid ${p.user_rating === 'star2' ? '#10b981' : 'rgba(0,0,0,0.1)'}; border-radius: 4px; padding: 4px 8px; font-size: 14px; cursor: pointer; transition: all 0.2s;" title="Good (quality 75)">⭐⭐</button>
+                                    <button class="rating-change-btn" data-id="${p.id}" data-rating="star3" style="background: ${p.user_rating === 'star3' ? 'rgba(251, 191, 36, 0.3)' : 'rgba(255, 255, 255, 0.6)'}; border: 1px solid ${p.user_rating === 'star3' ? '#fbbf24' : 'rgba(0,0,0,0.1)'}; border-radius: 4px; padding: 4px 8px; font-size: 14px; cursor: pointer; transition: all 0.2s;" title="Excellent (quality 90)">⭐⭐⭐</button>
+                                    <button class="rating-change-btn" data-id="${p.id}" data-rating="down" style="background: ${p.user_rating === 'down' ? 'rgba(239, 68, 68, 0.2)' : 'rgba(255, 255, 255, 0.6)'}; border: 1px solid ${p.user_rating === 'down' ? '#ef4444' : 'rgba(0,0,0,0.1)'}; border-radius: 4px; padding: 4px 8px; font-size: 14px; cursor: pointer; transition: all 0.2s;" title="Bad (quality 20)">👎</button>
                                 </div>
                             </div>
                         `;
