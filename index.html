@@ -2415,6 +2415,7 @@
                     const appConfig = {
                         ...webllm.prebuiltAppConfig,
                         model_list: [
+                            ...webllm.prebuiltAppConfig.model_list,
                             {
                                 model: config.customConfig.model,
                                 model_id: config.customConfig.model_id,
