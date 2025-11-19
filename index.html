@@ -2285,6 +2285,31 @@ For narratives, just paste the text directly."></textarea>
                     }
                 });
 
+                // === HIERARCHICAL INDEXES ===
+                // Paragraph search index
+                await learningDB.createIndex({
+                    index: {
+                        fields: ['type', 'parent_section_id'],
+                        name: 'paragraph-section-index'
+                    }
+                });
+
+                // Section lookup index
+                await learningDB.createIndex({
+                    index: {
+                        fields: ['type', 'source_doc_id', 'section_index'],
+                        name: 'section-doc-index'
+                    }
+                });
+
+                // Full document lookup index
+                await learningDB.createIndex({
+                    index: {
+                        fields: ['type', 'source_doc_id'],
+                        name: 'full-doc-index'
+                    }
+                });
+
                 console.log('📊 Indexes created for fast Mango queries!');
 
                 // Migrate old documents if needed
@@ -2922,6 +2947,94 @@ For narratives, just paste the text directly."></textarea>
             return chunks;
         }
 
+        // === HIERARCHICAL CHUNKING ===
+        // Create Document → Section → Paragraph hierarchy for better context retrieval
+        function hierarchicalChunk(content, analysis) {
+            const hierarchy = {
+                sections: [],
+                metadata: {
+                    content_type: analysis.content_type,
+                    total_length: content.length
+                }
+            };
+
+            // Step 1: Split into SECTIONS (semantic boundaries)
+            // Look for: double newlines, headings, topic changes
+            let sections = [];
+
+            if (analysis.content_type === 'faq') {
+                // FAQ: Each Q&A is a section
+                sections = analysis.structure
+                    .filter(item => item.type === 'qa')
+                    .map(qa => `Q: ${qa.question}\nA: ${qa.answer}`);
+            } else {
+                // Article/Narrative: Split by paragraphs or semantic breaks
+                // First try double newlines (paragraph breaks)
+                const paragraphSplit = content.split(/\n\n+/);
+
+                if (paragraphSplit.length > 3) {
+                    // Good paragraph structure - group into sections
+                    const PARAGRAPHS_PER_SECTION = 3;
+                    for (let i = 0; i < paragraphSplit.length; i += PARAGRAPHS_PER_SECTION) {
+                        const sectionParas = paragraphSplit.slice(i, i + PARAGRAPHS_PER_SECTION);
+                        sections.push(sectionParas.join('\n\n'));
+                    }
+                } else {
+                    // No clear paragraphs - split by sentences into medium chunks
+                    const sentences = content.match(/[^.!?]+[.!?]+/g) || [content];
+                    const SENTENCES_PER_SECTION = 5;
+                    for (let i = 0; i < sentences.length; i += SENTENCES_PER_SECTION) {
+                        const sectionSentences = sentences.slice(i, i + SENTENCES_PER_SECTION);
+                        sections.push(sectionSentences.join(' '));
+                    }
+                }
+            }
+
+            // Step 2: For each section, create paragraphs (searchable units)
+            sections.forEach((sectionContent, sectionIdx) => {
+                const section = {
+                    section_index: sectionIdx,
+                    content: sectionContent.trim(),
+                    paragraphs: []
+                };
+
+                // Split section into paragraphs (searchable chunks)
+                let paragraphs = [];
+
+                if (analysis.content_type === 'faq') {
+                    // FAQ: The whole Q&A is one paragraph
+                    paragraphs = [sectionContent];
+                } else {
+                    // Split by double newlines or sentences
+                    const paraSplit = sectionContent.split(/\n\n+/);
+                    if (paraSplit.length > 1) {
+                        paragraphs = paraSplit;
+                    } else {
+                        // No paragraph breaks - split into sentence groups
+                        const sentences = sectionContent.match(/[^.!?]+[.!?]+/g) || [sectionContent];
+                        const SENTENCES_PER_PARA = 2;
+                        for (let i = 0; i < sentences.length; i += SENTENCES_PER_PARA) {
+                            const paraSentences = sentences.slice(i, i + SENTENCES_PER_PARA);
+                            paragraphs.push(paraSentences.join(' '));
+                        }
+                    }
+                }
+
+                // Add paragraphs to section
+                paragraphs.forEach((paraContent, paraIdx) => {
+                    section.paragraphs.push({
+                        paragraph_index: paraIdx,
+                        content: paraContent.trim(),
+                        tokens: Math.ceil(paraContent.length / 4)
+                    });
+                });
+
+                hierarchy.sections.push(section);
+            });
+
+            return hierarchy;
+        }
+
         // Generate Q:A pairs from a chunk
         function generateQAPairsFromChunk(chunk, analysis) {
             const pairs = [];
@@ -3192,11 +3305,87 @@ For narratives, just paste the text directly."></textarea>
             console.log(`✅ Stored ${chunks.length} chunks with ${totalQAPairs} Q:A pairs`);
             console.log(`   Average quality: ${(sourceDoc.quality_score * 100).toFixed(1)}%`);
 
+            // === HIERARCHICAL STORAGE ===
+            // Store Document → Section → Paragraph hierarchy for advanced RAG
+            console.log(`🌳 Building hierarchical structure...`);
+            const hierarchy = hierarchicalChunk(content, analysis);
+
+            // Store full source document (for context retrieval)
+            const fullDocId = `full_${docId}`;
+            await learningDB.put({
+                _id: fullDocId,
+                type: 'source_document_full',
+                source_doc_id: docId,
+                title: title,
+                full_content: content,
+                content_type: analysis.content_type,
+                section_count: hierarchy.sections.length,
+                timestamp: Date.now()
+            });
+
+            // Store each section and its paragraphs
+            let totalParagraphs = 0;
+            for (const section of hierarchy.sections) {
+                const sectionId = `section_${docId}_${section.section_index}`;
+
+                // Store Section (Parent)
+                await learningDB.put({
+                    _id: sectionId,
+                    type: 'section',
+                    source_doc_id: docId,
+                    full_doc_id: fullDocId,
+                    section_index: section.section_index,
+                    content: section.content,
+                    paragraph_count: section.paragraphs.length,
+                    timestamp: Date.now()
+                });
+
+                // Store Paragraphs (Children - searchable units)
+                for (const paragraph of section.paragraphs) {
+                    const paraId = `para_${sectionId}_${paragraph.paragraph_index}`;
+
+                    // Generate embedding for paragraph
+                    const paraEmbedding = await generateEmbedding(paragraph.content);
+
+                    // Generate tags
+                    const { tags: paraTags, primaryTag: paraPrimaryTag } = autoGenerateStructuredTags(
+                        paragraph.content.substring(0, 200),
+                        paragraph.content,
+                        'general'
+                    );
+
+                    await learningDB.put({
+                        _id: paraId,
+                        type: 'paragraph',
+                        parent_section_id: sectionId,
+                        parent_doc_id: fullDocId,
+                        source_doc_id: docId,
+                        source_title: title,
+                        section_index: section.section_index,
+                        paragraph_index: paragraph.paragraph_index,
+                        content: paragraph.content,
+                        tokens: paragraph.tokens,
+                        embedding: paraEmbedding ? Array.from(paraEmbedding) : null,
+                        tags: paraTags,
+                        primary_tag: paraPrimaryTag,
+                        timestamp: Date.now()
+                    });
+
+                    totalParagraphs++;
+                }
+            }
+
+            console.log(`🌳 Hierarchical structure: ${hierarchy.sections.length} sections, ${totalParagraphs} paragraphs`);
+
             return {
                 document_id: docId,
                 chunks_created: chunks.length,
                 qa_pairs_generated: totalQAPairs,
-                avg_quality: sourceDoc.quality_score
+                avg_quality: sourceDoc.quality_score,
+                hierarchical: {
+                    sections: hierarchy.sections.length,
+                    paragraphs: totalParagraphs
+                }
             };
         }
 
@@ -3275,6 +3464,153 @@ For narratives, just paste the text directly."></textarea>
                     chunk_id: doc._id
                 }));
             }
+        }
+
+        // === HIERARCHICAL RETRIEVAL ===
+        // Parent + Child Document Retrieval with Auto-Merge
+        async function findSimilarHierarchical(query, limit = 5, options = {}) {
+            if (!learningDB) await initLearningDB();
+
+            console.log('🌳 Hierarchical RAG Search');
+            console.log(`   Query: "${query}"`);
+
+            // Step 1: Generate query embedding
+            const queryEmbedding = await generateEmbedding(query);
+            if (!queryEmbedding) {
+                console.warn('   ⚠️ No embedding generated, falling back to flat search');
+                return [];
+            }
+
+            // Step 2: Search in PARAGRAPHS (small, specific units)
+            const paragraphResult = await learningDB.find({
+                selector: { type: 'paragraph' },
+                limit: 100
+            });
+
+            console.log(`   Found ${paragraphResult.docs.length} paragraphs to search`);
+
+            // Step 3: Score paragraphs by similarity
+            const scoredParagraphs = paragraphResult.docs
+                .map(para => ({
+                    ...para,
+                    similarity: para.embedding ?
+                        cosineSimilarity(queryEmbedding, para.embedding) : 0
+                }))
+                .filter(para => para.similarity > 0.25) // Minimum threshold
+                .sort((a, b) => b.similarity - a.similarity);
+
+            if (scoredParagraphs.length === 0) {
+                console.log('   ⚠️ No paragraphs above similarity threshold');
+                return [];
+            }
+
+            console.log(`   Top paragraph similarity: ${scoredParagraphs[0].similarity.toFixed(3)}`);
+
+            // Step 4: Get top matches
+            const topParagraphs = scoredParagraphs.slice(0, limit * 2); // Get extra for auto-merge
+
+            // Step 5: HIERARCHICAL CONTEXT ENRICHMENT
+            // For each matched paragraph, fetch parent section + siblings
+            const enrichedResults = await Promise.all(
+                topParagraphs.map(async para => {
+                    try {
+                        // Get Parent Section
+                        const parentSection = await learningDB.get(para.parent_section_id);
+
+                        // Get Sibling Paragraphs (same section)
+                        const siblingResult = await learningDB.find({
+                            selector: {
+                                type: 'paragraph',
+                                parent_section_id: para.parent_section_id
+                            }
+                        });
+
+                        // Sort siblings by paragraph_index
+                        const sortedSiblings = siblingResult.docs
+                            .sort((a, b) => a.paragraph_index - b.paragraph_index);
+
+                        return {
+                            matchedParagraph: para,
+                            parentSection: parentSection,
+                            siblingParagraphs: sortedSiblings,
+                            similarity: para.similarity,
+                            source_title: para.source_title
+                        };
+                    } catch (error) {
+                        console.warn(`   ⚠️ Failed to enrich paragraph ${para._id}:`, error.message);
+                        return null;
+                    }
+                })
+            );
+
+            // Filter out null results (failed enrichments)
+            const validResults = enrichedResults.filter(r => r !== null);
+
+            // Step 6: AUTO-MERGE - Group by parent section
+            const grouped = {};
+            for (const result of validResults) {
+                const sectionId = result.parentSection._id;
+                if (!grouped[sectionId]) {
+                    grouped[sectionId] = [];
+                }
+                grouped[sectionId].push(result);
+            }
+
+            // Step 7: Build final results with merge logic
+            const finalResults = [];
+            for (const [sectionId, matches] of Object.entries(grouped)) {
+                if (matches.length >= 2) {
+                    // Multiple hits from same section → HIGH RELEVANCE
+                    // Return full section content
+                    const avgSimilarity = matches.reduce((sum, m) => sum + m.similarity, 0) / matches.length;
+
+                    finalResults.push({
+                        type: 'section_merged',
+                        content: matches[0].parentSection.content,
+                        section_id: sectionId,
+                        source_title: matches[0].source_title,
+                        match_count: matches.length,
+                        similarity: avgSimilarity,
+                        matched_paragraphs: matches.map(m => ({
+                            content: m.matchedParagraph.content,
+                            similarity: m.similarity
+                        }))
+                    });
+
+                    console.log(`   🔗 Auto-merged ${matches.length} paragraphs from same section (avg: ${avgSimilarity.toFixed(3)})`);
+                } else {
+                    // Single hit → Return section with context
+                    const match = matches[0];
+
+                    // Build section content with all siblings
+                    const sectionContent = match.siblingParagraphs
+                        .map(p => p.content)
+                        .join('\n\n');
+
+                    finalResults.push({
+                        type: 'section_with_context',
+                        content: sectionContent,
+                        section_id: sectionId,
+                        source_title: match.source_title,
+                        match_count: 1,
+                        similarity: match.similarity,
+                        matched_paragraph: match.matchedParagraph.content,
+                        sibling_count: match.siblingParagraphs.length
+                    });
+                }
+            }
+
+            // Sort by similarity and limit
+            finalResults.sort((a, b) => b.similarity - a.similarity);
+            const limitedResults = finalResults.slice(0, limit);
+
+            console.log(`   ✅ Hierarchical results: ${limitedResults.length} sections`);
+            limitedResults.forEach((r, i) => {
+                const typeLabel = r.type === 'section_merged' ? '🔗 Merged' : '📄 Single';
+                console.log(`   ${i+1}. ${typeLabel} | Matches: ${r.match_count} | Similarity: ${r.similarity.toFixed(3)}`);
+            });
+
+            return limitedResults;
         }
 
         // Export training data in various formats
@@ -3928,7 +4264,26 @@ For narratives, just paste the text directly."></textarea>
                     // Blended mode - scale RAG results by influence
                     const maxResults = Math.max(1, Math.ceil(ragInfluence * 10));
                     console.log(`🧠 RAG INFLUENCE: ${ragInfluence.toFixed(1)} - Blended mode (max ${maxResults} results)`);
-                    similarPairs = await findSimilarQuestionsEnhanced(userMessage, maxResults);
+
+                    // TRY HIERARCHICAL SEARCH FIRST (better context)
+                    const hierarchicalResults = await findSimilarHierarchical(userMessage, maxResults);
+
+                    if (hierarchicalResults.length > 0) {
+                        // Convert hierarchical results to similarPairs format
+                        similarPairs = hierarchicalResults.map(result => ({
+                            question: `From: ${result.source_title}`,
+                            answer: result.content,
+                            similarity: result.similarity,
+                            resultType: result.type,
+                            match_count: result.match_count
+                        }));
+
+                        console.log(`🌳 Using hierarchical results (${similarPairs.length} sections)`);
+                    } else {
+                        // Fallback to flat search (for older documents without hierarchy)
+                        console.log(`⚠️ No hierarchical results, falling back to flat search`);
+                        similarPairs = await findSimilarQuestionsEnhanced(userMessage, maxResults);
+                    }
 
                     // 🎯 PHASE 2: Execute DOM actions for high-confidence matches in blended mode too!
                     if (similarPairs.length > 0 && similarPairs[0].similarity > 0.7) {
