@@ -1424,7 +1424,7 @@
                 <label class="model-selector-label">Select AI Model:</label>
                 <select class="model-selector" id="modelSelector">
                     <option value="tinyllama">TinyLlama 1.1B (Fast, ~600MB)</option>
-                    <option value="deepseek-r1-1.5b">DeepSeek-R1-1.5B (Thinking, ~1GB)</option>
+                    <option value="deepseek-r1-1.5b">DeepSeek-R1-1.5B (Thinking, ~1GB) ⚠️</option>
                     <option value="qwen2.5-1.5b">Qwen2.5-1.5B (Reasoning, ~1GB)</option>
                     <option value="smollm2-1.7b">SmolLM2-1.7B (Efficient, ~1GB)</option>
                     <option value="phi3-mini">Phi-3-mini-4k (Reasoning, ~2GB)</option>
@@ -1688,7 +1688,7 @@
                 f16: 'DeepSeek-R1-Distill-Qwen-1.5B-q4f32_1-MLC',
                 f32: 'DeepSeek-R1-Distill-Qwen-1.5B-q4f32_1-MLC',
                 size: '~1GB',
-                description: 'Thinking model - shows reasoning in <think> tags',
+                description: 'Thinking model with <think> tags (experimental - may have issues)',
                 requiresCustomConfig: true,
                 customConfig: {
                     model: "https://huggingface.co/mlc-ai/DeepSeek-R1-Distill-Qwen-1.5B-q4f32_1-MLC",
