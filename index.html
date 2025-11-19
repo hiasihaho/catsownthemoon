@@ -431,6 +431,32 @@
             position: relative;
         }
 
+        /* Hide thinking blocks when toggle is off */
+        .hide-thinking .thinking-block {
+            display: none;
+        }
+
+        /* Thinking toggle checkbox styling */
+        .thinking-toggle-container {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-top: 8px;
+            font-size: 12px;
+            color: #666;
+        }
+
+        .thinking-toggle-container input[type="checkbox"] {
+            width: 16px;
+            height: 16px;
+            cursor: pointer;
+        }
+
+        .thinking-toggle-container label {
+            cursor: pointer;
+            user-select: none;
+        }
+
         .thinking-block::before {
             content: "🧠 Thinking Process";
             display: block;
@@ -1406,6 +1432,10 @@
                 </select>
                 <div class="model-info" id="modelInfo">Tiny & fast - great for quick responses</div>
                 <button class="send-btn" id="loadModelBtn" style="margin-top: 8px; width: 100%;">Load Model</button>
+                <div class="thinking-toggle-container">
+                    <input type="checkbox" id="showThinkingToggle" checked>
+                    <label for="showThinkingToggle">Show reasoning/thinking process</label>
+                </div>
             </div>
             <div class="model-status" id="modelStatus">
                 Initializing AI... ⏳
@@ -1640,6 +1670,7 @@
         const modelSelector = document.getElementById('modelSelector');
         const modelInfo = document.getElementById('modelInfo');
         const loadModelBtn = document.getElementById('loadModelBtn');
+        const showThinkingToggle = document.getElementById('showThinkingToggle');
 
         // Model configurations
         const MODEL_CONFIGS = {
@@ -1743,6 +1774,27 @@
             modelInfo.textContent = MODEL_CONFIGS[savedModel].description;
             localStorage.removeItem('selectedModel'); // Clear after use
         }
+
+        // Thinking toggle - restore from localStorage and setup listener
+        const savedShowThinking = localStorage.getItem('showThinking');
+        if (savedShowThinking !== null) {
+            showThinkingToggle.checked = savedShowThinking === 'true';
+        }
+
+        // Apply initial state
+        if (!showThinkingToggle.checked) {
+            chatMessages.classList.add('hide-thinking');
+        }
+
+        // Toggle event listener
+        showThinkingToggle.addEventListener('change', function() {
+            if (this.checked) {
+                chatMessages.classList.remove('hide-thinking');
+            } else {
+                chatMessages.classList.add('hide-thinking');
+            }
+            localStorage.setItem('showThinking', this.checked);
+        });
 
         // LLM state
         let engine = null;
